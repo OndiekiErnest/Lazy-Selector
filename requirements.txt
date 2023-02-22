@@ -1,0 +1,6 @@
+pafy==0.5.5
+plyer==2.0.0
+python_vlc==3.0.16120
+pytube==12.1.0
+Send2Trash==1.8.0
+youtube_search_python==1.6.6
