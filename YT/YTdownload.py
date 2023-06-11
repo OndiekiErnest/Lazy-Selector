@@ -30,6 +30,7 @@ class Base():
     def __init__(self, yt: YouTube, display=None, f_type=""):
         self.display = display
         self.yt_obj = yt
+
         self.yt_obj.register_on_complete_callback(self.on_complete)
         self.yt_obj.register_on_progress_callback(self.on_progress)
 
@@ -197,4 +198,7 @@ class YTVideo(Base):
 
 def get_yt(link: str):
     """ return pytube YouTube instance """
-    return YouTube(link)
+    yt = YouTube(link)
+    if yt.age_restricted:
+        yt.bypass_age_gate()
+    return yt
