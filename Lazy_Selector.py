@@ -53,12 +53,32 @@ from tkinter.filedialog import askopenfilenames, askdirectory
 from playX import Counta
 from configparser import ConfigParser
 from webbrowser import open as open_tab
+from pytube import exceptions as tube_errors
 
 BASE_DIR = dirname(abspath(__file__))
 
 
 DATA_DIR = mixer.r_path("data")
-debug = 0
+# debug = 0
+
+PYTUBE_ERRORS = {
+    tube_errors.AgeRestrictedError: "Age restricted.",
+    tube_errors.MaxRetriesExceeded: "Retries exceeded.",
+    tube_errors.VideoPrivate: "Video is private.",
+    tube_errors.VideoRegionBlocked: "Video region blocked.",
+    tube_errors.VideoUnavailable: "Video unavailable.",
+    tube_errors.LiveStreamError: "Live stream unsupported.",
+    tube_errors.RecordingUnavailable: "Live stream not available.",
+    tube_errors.MembersOnly: "Members-only video.",
+}
+
+
+def handle_pytube_errors(error) -> str:
+    """ return a friendly string for error """
+    for k, v in PYTUBE_ERRORS.items():
+        if isinstance(error, k):
+            return v
+    return "Could not fetch info."
 
 
 class Settings():
@@ -701,8 +721,9 @@ class Player(Settings):
                                  "Audio", for_display, self.download_location)
             self.prepare_download(quality)
 
-        except Exception:
-            self.status_bar.configure(text="Couldn't fetch info. Try again.")
+        except Exception as e:
+            error_msg = f"Error: {handle_pytube_errors(e)}"
+            self.status_bar.configure(text=error_msg)
 
     def download_audio(self):
         """ threaded download audio """
@@ -733,8 +754,9 @@ class Player(Settings):
                                  "Video", for_display, self.download_location)
             self.prepare_download(quality)
 
-        except Exception:
-            self.status_bar.configure(text="Couldn't fetch info. Try again.")
+        except Exception as e:
+            error_msg = f"Error: {handle_pytube_errors(e)}"
+            self.status_bar.configure(text=error_msg)
 
     def download_video(self):
         """ threaded download video """
@@ -759,7 +781,7 @@ class Player(Settings):
                     self.yt_instances.append(self.yt_video)
                 self.status_bar.configure(text="Added to download queue...")
             except Exception:
-                self.status_bar.configure(text="Couldn't start download...")
+                self.status_bar.configure(text="Could not start download...")
 
 # ----------------------------------------------------------------------------------------------------------------------
 
@@ -1175,7 +1197,7 @@ class Player(Settings):
                 if not self.isOffline:
                     # clear text to avoid confusion
                     label_text = self.status_bar["text"]
-                    if label_text.startswith(("ERROR", "Error", "Couldn't")):  # clear if text in tuple
+                    if label_text.startswith(("ERROR", "Error", "Could not")):  # clear if text in tuple
                         self.status_bar.configure(text="")
                     # inform user
                     self.searchlabel.configure(text="Fetching audio...")
@@ -1639,7 +1661,7 @@ class Player(Settings):
                     break
                 elif (time() - t) > self.TIMEOUT:
                     self._stop_play()
-                    self._update_labels("Timeout: Couldn't load media")
+                    self._update_labels("Timeout: Could not load media")
                     break
 
             except AttributeError:
