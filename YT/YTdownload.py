@@ -1,204 +1,326 @@
-__author__ = "Ernesto"
-__email__ = "ernestondieki12@gmail.com"
+""" youtube download functionalities """
+
+from ffmpeg_progress_yield import FfmpegProgress
+import os
+from collections import namedtuple
+from YT.ffmpeg import (
+    ffmpeg_audio_download,
+    ffmpeg_dash_download,
+)
+import re
+import yt_dlp
+from datetime import datetime
+import humanize
+from YT.utils import (
+    prevent_sleep,
+    release_sleep,
+)
 
 
-from os import rename
-from pytube import YouTube
-from threading import Thread
-from os.path import splitext, join
-from YT.ffmpeg import to_mp3, add_audio, safe_delete
+AudioStream = namedtuple(
+    "AudioStream",
+    (
+        "url", "thumbnail",
+        "title", "itag",
+        "abr", "asr",
+        "filesize", "container",
+        "length",
+        "p",
+    ),
+)
+VideoStream = namedtuple(
+    "VideoStream",
+    (
+        "url", "thumbnail",
+        "title", "itag",
+        "res", "filesize",
+        "container",
+        "audio",
+        "p",
+    ),
+)
+RES_MAP = {
+    "480p": "(SD)",
+    "720p": "(HD)",
+    "1080p": "(FHD)",
+    "1440p": "(2K)",
+    "2160p": "(4K)",
+    "2880p": "(5K)",
+    "4320p": "(8K)",
+}
 
 
-def cvt_bytes(num: float) -> str:
-    """ format bytes to respective units for presentation (max GB) """
+def normalize_filename(name):
+    """ remove invalid characters for filename """
+    return re.sub(r'[<>:"/\\|?*]', "", name)
+
+
+def audio_sortkey(item):
+    """ sort based on bitrate """
+    abr = item.get("abr", 0)
+    return abr if abr else 0
+
+
+def video_sortkey(item):
+    """
+    sort based on video width and size
+    width and size must be int
+    """
+    width = item.get("width", 0) or 0
+    size = item.get("filesize", 0) or 0
+    return (width, -size)  # negate size, to sort in opposite order
+
+
+def get_url_details(sinfo: dict, only=None):
+    """
+    extract necessary data for display in properties
+    sinfo is a dict
+    """
+
+    if only is None:
+        upload_date = datetime.strptime(sinfo.get("upload_date"), "%Y%m%d")
+        return {
+            "thumbnail": sinfo.get("thumbnail"),
+            "url": sinfo.get("original_url") or sinfo.get("webpage_url"),
+            "resolution": sinfo.get("resolution"),
+            "views": f"{sinfo.get('view_count', 0):,}",
+            "likes": f"{sinfo.get('like_count', 0):,}",
+            "comments": f"{sinfo.get('comment_count') or 0:,} comments",
+            "duration": sinfo.get("duration_string", 0),
+            "filesize": humanize.naturalsize(sinfo.get('filesize_approx', 0)),
+            "uploader": sinfo.get("uploader"),
+            "uploaded": humanize.naturaltime(upload_date),
+            "live": f"{sinfo.get('is_live', False) or False}",
+            "streamed": f"{sinfo.get('was_live', False) or False}",
+            "availability": sinfo.get("availability"),
+            "age": sinfo.get("age_limit"),
+            "audio": f"{sinfo.get('audio_channels')} channels, {sinfo.get('abr') or 0} kbps, {sinfo.get('asr') or 0:,} Hz",
+            "fps": sinfo.get("fps"),
+            "categories": ", ".join(sinfo.get("categories", [])),
+        }
+    else:
+        return sinfo.get(only)
+
+
+def get_best_audio(sinfo: dict):
+    """
+    extract necessary audio data from url info
+    sinfo is sanitized info dict
+    """
+
+    title = normalize_filename(sinfo.get("title", ""))
+    thumbnail_url = sinfo.get("thumbnail")
+    duration = sinfo.get("duration", 0)
+
+    stream = sorted(
+        sinfo.get("formats"),
+        key=audio_sortkey,
+        reverse=True
+    )[0]
+
+    media_url = stream.get("url")
+    itag = stream.get("format_id")
+    bitrate = round(stream.get("abr", 0) or 0)  # take care of live streams that return None
+    asr = stream.get("asr")
+    filesize = humanize.naturalsize(stream.get("filesize", 0))
+    container = stream.get("container")
+    p = f"{bitrate} kbps"
+
+    return AudioStream(
+        media_url,
+        thumbnail_url,
+        title,
+        itag,
+        bitrate,
+        asr,
+        filesize,
+        container,
+        duration,
+        p,
+    )
+
+
+def get_audio_streams(sinfo: dict):
+    """ extract necessary audio data from info dict """
+
     try:
-        if num >= 1073741824:
-            return f"{round(num / 1073741824, 2):,} GB"
-        elif num >= 1048576:
-            return f"{round(num / 1048576, 2):,} MB"
-        elif num >= 1024:
-            return f"{round(num / 1024, 2):,} KB"
-        else:
-            return f"{num} Bytes"
+        title = normalize_filename(sinfo.get("title", ""))
+        thumbnail_url = sinfo.get("thumbnail")
+        duration = sinfo.get("duration", 0)
+
+        streams = sorted(
+            sinfo.get("formats"),
+            key=audio_sortkey,
+            reverse=True
+        )
+        for item in streams:
+
+            if item.get("abr"):  # audio
+
+                media_url = item.get("url")
+                itag = item.get("format_id")
+                bitrate = round(item.get("abr", 0) or 0)  # take care of live streams that return None
+                asr = item.get("asr")
+                filesize = humanize.naturalsize(item.get("filesize", 0))
+                container = item.get("container")
+                p = f"{bitrate} kbps"
+
+                yield AudioStream(
+                    media_url,
+                    thumbnail_url,
+                    title,
+                    itag,
+                    bitrate,
+                    asr,
+                    filesize,
+                    container,
+                    duration,
+                    p,
+                )
+
     except Exception:
-        return "0 Bytes"
+        yield ()
 
 
-class Base():
-    """ Pytube YouTube object, yt_obj """
+def get_video_streams(sinfo: dict):
+    """ extract necessary video data from info dict """
 
-    def __init__(self, yt: YouTube, display=None, f_type=""):
-        self.display = display
-        self.yt_obj = yt
+    try:
+        title = normalize_filename(sinfo.get("title", ""))
+        thumbnail = sinfo.get("thumbnail")
+        audio_stream = get_best_audio(sinfo)  # get the best audio stream
 
-        self.yt_obj.register_on_complete_callback(self.on_complete)
-        self.yt_obj.register_on_progress_callback(self.on_progress)
+        streams = sorted(
+            sinfo.get("formats"),
+            key=video_sortkey,
+            reverse=True
+        )
+        for item in streams:
 
-        self.stream = None
-        self.file_path = ""
-        self.display_text = ""
-        self._type = f_type
+            res = item.get("format_note")
+            container = item.get("container")
 
-    @property
-    def thumbnail(self) -> str:
-        """ thumbnail link """
-        return self.yt_obj.thumbnail_url
+            if (item.get("width")) and (res) and (container):  # video
+                url = item.get("url")
+                itag = item.get("format_id")
+                filesize = humanize.naturalsize(item.get("filesize", 0))
+                p = f"{res} {RES_MAP.get(res, '')}"  # presentation
 
-    def _download(self, file_dir, prefix=None):
-        """ file_dir: folder to save download """
-        file_path = self.stream.download(output_path=file_dir,
-                                         max_retries=10,
-                                         filename_prefix=prefix,
-                                         )
-        return file_path
+                yield VideoStream(
+                    url,
+                    thumbnail,
+                    title,
+                    itag,
+                    res,
+                    filesize,
+                    container,
+                    audio_stream,
+                    p,
+                )
+
+    except Exception:
+        yield ()
+
+
+class Downloader():
+    """ audio/video download manager """
+
+    def __init__(self, stream, display, dst):
+        self.display_label = display
+        self.process = None
+        self.dst = dst
+        self.stream = stream
+        self.done = False
+        self.disp_title = self.stream.title[:17]
+
+    def ffmpeg_process(self, cmd):
+        """ run ffmpeg while getting the progress """
+        self.process = FfmpegProgress(cmd)
+        for progress in self.process.run_command_with_progress():
+            yield progress
 
     def update_disp(self, display):
-        """ update the label for displaying output """
-        self.display = display
-        # update text right away
-        self.update_text(self.display_text)
+        """ update display label """
+        self.display_label = display
 
-    def update_text(self, txt: str):
-        """ update display text """
+    def on_progress(self, progress, prefix):
+        """ update progress """
+        dsp_txt = f"({prefix}) {self.disp_title}...  {progress}% of {self.stream.filesize}  "
         try:
-            self.display_text = txt
-            self.display.configure(text=self.display_text)
-        except Exception:
+            self.display_label.config(text=dsp_txt)
+        except Exception:  # when display is destroyed
             pass
 
-    # obsolete since ThreadPoolExcutor was introduced
-    def download(self, path, prefix=None):
-        """ Download to `path` folder """
-        thread = Thread(target=self._download,
-                        args=(path, ), kwargs={"prefix": prefix},
-                        daemon=True,
-                        )
-        thread.start()
+    def on_done(self, dst_path):
+        """ send a message about download location """
 
-    def on_complete(self, stream, filepath):
-        self.file_path = filepath
+        sep = os.sep
+        spd = dst_path.split(sep)
+        spd = f"{sep}{spd[-2]}{sep}{spd[-1]}" if len(spd) > 1 else f"{spd[0]}{sep}"
 
-    def on_progress(self, stream, chunk, bytes_rem):
-        # stream, chunk, bytes_remaining
-        filesize = stream.filesize
-        p_done = ((filesize - bytes_rem) / filesize) * 100
+        self.display_label.config(text=f"Downloaded to '{spd}'...")
 
-        self.update_text(f"({self._type}) {self.filename[:20]}... {round(p_done, 2)}% of {cvt_bytes(filesize)}")
-
-
-class YTAudio(Base):
-    """
-    Pytube audio stream of `itag`
-    `disp` is of a tkinter Label inst
-    """
-
-    def __init__(self, yt: YouTube, itag: int, disp=None, _type="Audio"):
-
-        super().__init__(yt, display=disp, f_type=_type)
-        self.stream = self.yt_obj.streams.get_by_itag(itag)
-        self.filename = self.stream.default_filename
-        self.done = False
-
-    def _download(self, file_dir, prefix=None, preset=None):
-        """ override _download method """
+    def video_download(self, dst_path, prefix=None, preset=None):
+        """ video download function """
+        self.display_label.config(text="Downloadig Video...")
+        filename = os.path.join(dst_path, f"{self.stream.title}.mp4")
+        # prevent sys sleep
+        prevent_sleep()
         try:
-            spd = file_dir.split("\\")
-            spd = f"\\{spd[-2]}\\{spd[-1]}" if len(spd) > 1 else f"{spd}\\"
-            # over-write if file exists
-            self.update_text(f"Downloading to '...{spd}'")
-
-            # download
-            file_path = super()._download(file_dir, prefix=prefix)
-
-            path, file_ext = splitext(file_path)
-
-            if file_ext.lower() != ".mp3":
-                self.update_text("Converting to mp3...")
-
-                to_mp3(file_path, self.thumbnail, preset=preset)
-                safe_delete(file_path)
-
-            self.update_text(f"Saved to '...{spd}'")
-
+            downloader = ffmpeg_dash_download(
+                self.stream.url,
+                self.stream.audio.url,  # audio stream
+                filename,
+                preset=preset,
+                func=self.ffmpeg_process,
+            )
+            for progress in downloader:
+                self.on_progress(progress, prefix)  # update progress
+            self.on_done(dst_path)
         except Exception:
-            self.update_text("Error saving the audio. Try again.")
+            self.display_label.config(text="An error occured while downloading...")
         self.done = True
+        # release sleep lock
+        release_sleep()
 
-    def __repr__(self):
-        return f"YTAudio, {self.stream.abr}"
-
-
-class YTVideo(Base):
-    """
-    Pytube video stream of `itag`
-    `disp` is of a tkinter Label inst
-    """
-
-    def __init__(self, yt: YouTube, itag: int, disp=None, _type="Video"):
-        super().__init__(yt, display=disp, f_type=_type)
-
-        self.done = False
-
-        get_audio = yt.streams.get_audio_only
-        # get by itag
-        self.stream = self.yt_obj.streams.get_by_itag(itag)
-        self.filename = self.stream.default_filename
-        self.audio = get_audio(subtype="webm") or get_audio()
-
-    def _download(self, file_dir: str, prefix: str = None, preset=None):
-        """
-        override _download method
-        file_dir: folder to download to
-        """
-
-        audio_path = None
-        output = join(file_dir, f"{splitext(self.filename)[0]}.mp4")
-        spd = file_dir.split("\\")
-        spd = f"\\{spd[-2]}\\{spd[-1]}" if len(spd) > 1 else f"{spd}\\"
-        # over-write if file exists
-        # notify starting
-        self.update_text(f"Downloading to '...{spd}'")
+    def audio_download(self, dst_path, prefix=None, preset=None):
+        """ audio download function """
+        self.display_label.config(text="Downloadig Audio...")
+        filename = os.path.join(dst_path, f"{self.stream.title}.mp3")
+        # prevent sys sleep
+        prevent_sleep()
         try:
-
-            if self.stream.is_adaptive:
-                # download audio in a different thread
-                self.thread_audio_download(self.audio.download,
-                                           file_dir,
-                                           filename_prefix="Audio_",
-                                           max_retries=10)
-                audio_path = join(file_dir, f"Audio_{self.audio.default_filename}")
-
-            # download video
-            self.full_path = super()._download(file_dir, prefix=prefix)
-
-            if (audio_path and self.full_path):
-
-                self.update_text("Combining video and audio...")
-                add_audio(self.full_path, audio_path, output, remove_src=True, preset=preset)
-
-            elif audio_path is None:
-                # strip 'Video_' prefix
-                rename(self.full_path, output)
-
-            self.full_path = output
-            self.update_text(f"Saved to '...{spd}'")
-
+            downloader = ffmpeg_audio_download(
+                self.stream.url,
+                self.stream.thumbnail,  # audio cover link
+                filename,
+                preset=preset,
+                func=self.ffmpeg_process,
+            )
+            for progress in downloader:
+                self.on_progress(progress, prefix)  # update progress
+            self.on_done(dst_path)
         except Exception:
-            self.update_text("Error saving the video. Try again.")
+            self.display_label.config(text="An error occured while downloading...")
         self.done = True
+        # release sleep lock
+        release_sleep()
 
-    def thread_audio_download(self, func, *args, **kwargs):
-        """ download audio in separate thread """
-        thread = Thread(target=func, args=args, kwargs=kwargs, daemon=True)
-        thread.start()
+    def cancel_download(self):
+        if self.process:
+            try:
+                self.process.quit()
+            except RuntimeError:
+                pass  # no process
+        self.done = True
+        return self.done
 
-    def __repr__(self):
-        return f"YTVideo, {self.stream.resolution}"
 
-
-def get_yt(link: str):
-    """ return pytube YouTube instance """
-    yt = YouTube(link)
-    if yt.age_restricted:
-        yt.bypass_age_gate()
-    return yt
+def get_sanitizedinfo(url: str) -> dict:
+    """ extract and get yt sanitized info from url """
+    try:
+        with yt_dlp.YoutubeDL() as yt:
+            info = yt.extract_info(url, download=False)
+            return yt.sanitize_info(info)
+    except Exception:
+        return {}

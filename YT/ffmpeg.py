@@ -1,104 +1,78 @@
-__author__ = "Ernesto"
-__email__ = "ernestondieki12@gmail.com"
+""" ffmpeg file download and conversion functions """
 
 # option placement matters
 # ffmpeg [global options] [input options] -i input [output options] output
 
-from subprocess import run, STARTUPINFO, STARTF_USESHOWWINDOW
-from os.path import join, abspath, dirname, exists, splitext
-from os import remove, mkdir
-import sys
-
-
-BASE_DIR = dirname(abspath(__file__))
-
-
-def r_path(relpath):
-    """
-        Get absolute path
-    """
-
-    base_path = getattr(sys, "_MEIPASS", BASE_DIR)
-    return join(base_path, relpath)
+import os
+from YT.utils import (
+    r_path,
+)
 
 
 YT_DIR = r_path("YT")
-YT_DIR = YT_DIR if exists(YT_DIR) else BASE_DIR  # else is true when running Lazy_Selector as a file, not app
 
-DATA_DIR = join(YT_DIR, "data")
+DATA_DIR = os.path.join(YT_DIR, "data")
 
-FFMPEG_DIR = join(YT_DIR, "ffmpeg")
+FFMPEG_DIR = os.path.join(YT_DIR, "ffmpeg")
 
-# PATH = join(FFMPEG_DIR, "bin", "ffmpeg.exe")  # uncomment this if you have ffmpeg.exe put in bin folder
-PATH = "ffmpeg"  # if you have ffmpeg path set on environment variables
-
-FFMPEG_OUT_FILE = join(DATA_DIR, "ffmpeg_errors.txt")
-
-NO_WIN = STARTUPINFO()
-NO_WIN.dwFlags |= STARTF_USESHOWWINDOW
+PATH = os.path.join(FFMPEG_DIR, "bin", "ffmpeg.exe")
 
 
-def safe_delete(filename: str):
-    """ skip exceptions that may occur when deleting """
-    try:
-        remove(filename)
-    except Exception:
-        pass
+def callback_func(cmd):
+    yield
 
 
-def ffmpeg_process(cmd: list):
-    """ blocking function; run cmd using subprocess """
+def to_mp3(media_path, cover, fmt="mp3", output=None, preset=None, cmd_runner=None):
+    """ convert audio `media_path` format to `fmt` """
+    cmd_runner = cmd_runner or callback_func
 
-    try:
-        # over-write with the most recent errors
-        with open(FFMPEG_OUT_FILE, "wb") as error_file:
-
-            run(cmd,
-                stderr=error_file,
-                check=True,
-                startupinfo=NO_WIN,
-                )
-    except FileNotFoundError:
-        mkdir(DATA_DIR)
-        ffmpeg_process(cmd)
-
-
-def to_mp3(filename, cover, fmt="mp3", preset=None):
-    """ convert audio `filename` format to `fmt` """
-    name, ext = splitext(filename)
-
-    if ext.strip(".") != fmt:
+    if not output:  # when media_path is a file path
+        name, ext = os.path.splitext(media_path)
         output = f"{name}.{fmt}"
-        # ffmpeg [global options] [input options] -i input [output options] output
-        cmd = [
-            PATH,
-            "-y",  # overwrite output
-            # "-cpu-used", "0",
-            "-threads", "2",
-            "-i", filename,
-            "-i", cover,
-            "-v", "error",
-            "-map", "0:0",
-            "-map", "1:0",
-            "-id3v2_version", "3",
-            "-metadata:s:v", "title='Album cover'",
-            "-metadata:s:v", "comment='Cover (front)'",
-            "-preset", preset or "medium",
-            output,
-        ]
 
-        ffmpeg_process(cmd)
+    # ffmpeg [global options] [input options] -i input [output options] output
+    cmd = [
+        PATH,
+        "-y",  # overwrite output
+        "-progress", "pipe:1",  # write to stdout
+        "-reconnect", "1",
+        "-reconnect_streamed", "1",
+        "-reconnect_on_network_error", "1",
+        "-reconnect_delay_max", "60",  # give up after this seconds
+        "-reconnect_on_http_error", "1",
+        # "-cpu-used", "0",
+        "-threads", "2",
+        "-i", media_path,
+        "-i", cover,
+        # "-v", "error",
+        "-map", "0:0",
+        "-map", "1:0",
+        "-id3v2_version", "3",
+        "-metadata:s:v", "title='Album cover'",
+        "-metadata:s:v", "comment='Cover (front)'",
+        "-preset", preset or "medium",
+        output,
+    ]
+
+    yield from cmd_runner(cmd)
 
 
-def add_audio(video, audio, output, remove_src=False, preset=None):
+def add_audio(video, audio, output, preset=None, cmd_runner=None):
     """ add audio to video (not mixing) """
+    cmd_runner = cmd_runner or callback_func
 
     # ffmpeg [global options] [input options] -i input [output options] output
     cmd = [
         PATH,
         "-y",  # overwrite if output exists
+        "-progress", "pipe:1",  # write to stdout
+        "-reconnect", "1",
+        "-reconnect_streamed", "1",
+        "-reconnect_on_network_error", "1",
+        "-reconnect_delay_max", "60",  # give up after this seconds
+        "-reconnect_on_http_error", "1",
         "-i", video, "-i", audio,
-        "-v", "error",  # log errors, we're interested in them
+        # "-v", "error",  # log errors, we're interested in them
         "-map", "0:v:0",  # grab video only (track 0) from index 0 (video input)
         "-map", "1:a:0",  # grab track 0 from index 1 (audio input)
         "-c:v", "copy",  # copy video data, no re-encoding
@@ -107,32 +81,36 @@ def add_audio(video, audio, output, remove_src=False, preset=None):
         output,
     ]
 
-    ffmpeg_process(cmd)
-
-    if remove_src:
-        safe_delete(audio)
-        safe_delete(video)
+    yield from cmd_runner(cmd)
 
 
-def reduce_vid_size(filename):
-    """ use crf, slower preset for small file size mp4 vids """
-    name, ext = splitext(filename)
+def to_mp4(video, output, cmd_runner=None):
+    """ video to mp4 """
+    cmd_runner = cmd_runner or callback_func
 
-    # ffmpeg [global options] [input options] -i input [output options] output
-    cmd = [
-        PATH,
-        "-i", filename,
-        "-vcodec", "libx265",
-        "-crf", "28",
-        "-preset", "slower",
-        f"{name}_c{ext}"
-    ]
+    name, ext = os.path.splitext(video)
+    if ext != ".mp4":
+        cmd = [
+            PATH,
+            "-progress", "pipe:1",  # write to stdout
+            "-reconnect", "1",
+            "-reconnect_streamed", "1",
+            "-reconnect_on_network_error", "1",
+            "-reconnect_delay_max", "60",  # give up after this seconds
+            "-reconnect_on_http_error", "1",
+            "-i", video,
+            output,
+        ]
+        yield from cmd_runner(cmd)
 
-    ffmpeg_process(cmd)
+
+def ffmpeg_dash_download(video_link, audio_link, output, preset=None, func=None):
+    yield from add_audio(video_link, audio_link, output, preset=preset, cmd_runner=func)
 
 
-def ffmpeg_video_download(video, audio, output):
-    """ download youtube vids using stream links """
-    # ffmpeg -i "YOUR URL TO DOWNLOAD VIDEO FROM" -c:v libx264 -preset slow -crf 22 "saveas.mp4"
-    # hw
-    # ffmpeg -i "URL" -preset medium -c:v hevc_nvenc -rc constqp -qp 31 -c:a aac -b:a 64k -ac 1 “name_output.mp4”
+def ffmpeg_video_download(video_link, output, func=None):
+    yield from to_mp4(video_link, output, cmd_runner=func)
+
+
+def ffmpeg_audio_download(audio_link, cover_link, output, preset=None, func=None):
+    yield from to_mp3(audio_link, cover_link, output=output, preset=preset, cmd_runner=func)

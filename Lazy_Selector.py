@@ -1,45 +1,61 @@
-__author__ = "Ernesto"
-__email__ = "ernestondieki12@gmail.com"
-__version__ = "4.4.0"
+""" Lazy Selector app """
 
+__VERSION__ = "4.5.0"
+
+# Notes:
 # server to handle commands while player is open
 # remake an advanced windows toast
-# use json to save settings
 
-# from profiler import profile
-import mixer
-from stream import Stream
-import pafy
+# from profiler import profile_function
+import vlcmixer as mixer
+from YT.videosearch import YTSearch
 from YT.YTdownload import (
-    YTAudio, YTVideo, get_yt,
-    safe_delete, cvt_bytes,
+    get_sanitizedinfo,
+    get_video_streams,
+    get_audio_streams,
+    get_url_details,
+    get_best_audio,
+    Downloader,
+)
+from core import (
+    EXTS,
+    BASE_DIR,
+    scroll_widget,
+)
+from YT.utils import (
+    file_details,
+    safe_delete,
+    strfdelta,
+    is_url,
+    r_path,
 )
 from concurrent.futures import ThreadPoolExecutor
 from socket import gethostname, gethostbyname
 from threading import Thread
-from os import chmod, getpid, listdir, popen
-from os.path import (
-    expanduser, join, dirname, basename,
-    abspath, splitext, exists, normpath, isfile
-)
 from re import split as SPLIT
-from subprocess import call, STARTUPINFO, STARTF_USESHOWWINDOW
+from subprocess import (
+    call, STARTUPINFO,
+    STARTF_USESHOWWINDOW,
+)
 from stat import S_IREAD, S_IWUSR
 from plyer import battery, notification
 import sys
+import os
 from send2trash import send2trash
 from random import shuffle
 import images
 from time import sleep, time
 from datetime import timedelta
-from tkinter import (Tk, Frame, Label,
-                     Button,
-                     PhotoImage,
-                     Menu, DoubleVar,
-                     Listbox, Entry,
-                     Scrollbar, Toplevel,
-                     Canvas, Checkbutton,
-                     IntVar, BooleanVar)
+from tkinter import (
+    Tk, Frame, Label,
+    Button,
+    PhotoImage,
+    Menu, DoubleVar,
+    Listbox, Entry,
+    Scrollbar, Toplevel,
+    Canvas, Checkbutton,
+    IntVar, BooleanVar
+)
 
 from tkinter.ttk import Scale, Notebook, Style
 from ttkthemes import ThemedStyle
@@ -48,40 +64,35 @@ try:
 # for python greater than 3.7
 except ImportError:
     from idlelib.tooltip import Hovertip as ToolTip
-from dialogs import scroll_widget, showinfo, okcancel, getquality
-from tkinter.filedialog import askopenfilenames, askdirectory
-from playX import Counta
-from configparser import ConfigParser
+from dialogs import (
+    DetailsPopup,
+    showinfo, okcancel,
+    getquality,
+)
+from tkinter.filedialog import (
+    askopenfilenames, askdirectory
+)
+from storage import (
+    AppConfigs, DCache,
+    TrackRecords,
+)
 from webbrowser import open as open_tab
-from pytube import exceptions as tube_errors
-
-BASE_DIR = dirname(abspath(__file__))
 
 
-DATA_DIR = mixer.r_path("data")
-# debug = 0
+DATA_DIR = r_path("data", base_dir=BASE_DIR)
+TRACK_RDIR = os.path.join(DATA_DIR, "trackrecords")  # track records dir
+CACHE_DIR = os.path.join(DATA_DIR, "appcache")
 
-PYTUBE_ERRORS = {
-    tube_errors.AgeRestrictedError: "Age restricted.",
-    tube_errors.MaxRetriesExceeded: "Retries exceeded.",
-    tube_errors.VideoPrivate: "Video is private.",
-    tube_errors.VideoRegionBlocked: "Video region blocked.",
-    tube_errors.VideoUnavailable: "Video unavailable.",
-    tube_errors.LiveStreamError: "Live stream unsupported.",
-    tube_errors.RecordingUnavailable: "Live stream not available.",
-    tube_errors.MembersOnly: "Members-only video.",
-}
+EXIFTOOL_PATH = os.path.join(r_path("exiftool", base_dir=BASE_DIR), "exiftool.exe")
 
 
-def handle_pytube_errors(error) -> str:
+def handle_yt_errors(error) -> str:
     """ return a friendly string for error """
-    for k, v in PYTUBE_ERRORS.items():
-        if isinstance(error, k):
-            return v
-    return "Could not fetch info."
+
+    return "An error has occured..."
 
 
-class Settings():
+class Options():
     __slots__ = ()
     # in seconds
     TIMEOUT = 20
@@ -89,32 +100,23 @@ class Settings():
                        "selectbackground": "DeepSkyBlue3", "selectforeground": "white",
                        "height": 43, "relief": "flat",
                        "font": ("New Times Roman", 9), "highlightthickness": 0}
+
     SCALE_OPTIONS = {"from_": 0, "orient": "horizontal", "length": 225, "cursor": "hand2"}
-    FILENAMES_INITIALDIR = expanduser("~\\Music")
+    FILENAMES_INITIALDIR = os.path.expanduser("~\\Music")
     ALT_DIRS = {FILENAMES_INITIALDIR, }
 
 
-class Player(Settings):
+class Player(Options):
     """
         Plays audio and video files in shuffle and repeat mode
         win is tkinter's toplevel widget Tk
     """
-    _CONFIG = ConfigParser()
-    try:
-        _CONFIG.read(DATA_DIR + "\\lazylog.cfg")
-        BG = _CONFIG["theme"]["bg"]
-        FG = _CONFIG["theme"]["fg"]
-    # exceptions; KeyError, ValueError
-    except Exception:
-        BG = "gray28"
-        FG = "gray97"
-        try:
-            _CONFIG.add_section("theme")
-        except Exception:
-            pass
-        _CONFIG.set("theme", "bg", "gray28")
-        _CONFIG.set("theme", "fg", "gray97")
+    _CONFIG = AppConfigs(os.path.join(DATA_DIR, "lazylog.cfg"))
 
+    BG = _CONFIG.get_inner("theme", "bg")
+    FG = _CONFIG.get_inner("theme", "fg")
+
+    # @profile_function
     def __init__(self, win):
         self._root = win
         self._root.resizable(0, 0)
@@ -126,30 +128,22 @@ class Player(Settings):
         self._root.wm_iconphoto(1, PhotoImage(data=images.APP_IMG))
         # for screens with high DPI minus 102
         self._screen_height = self._root.winfo_screenheight() - 104 if self._root.winfo_screenheight() >= 900 else self._root.winfo_screenheight() - 84
-        # if debug: print(self._screen_height)
 
         self.shuffle_mixer = mixer.VLC()
-        self.streamer = Stream()
+        self.video_search = YTSearch()
         self._progress_variable = DoubleVar()
         self.mute_variable = BooleanVar()
         self.loopone_variable = BooleanVar()
         self.FORGET = IntVar()
-        try:
-            self.FORGET.set(int(Player._CONFIG["theme"]["forget"]))
-        # exceptions; KeyError, ValueError
-        except Exception:
-            self.FORGET.set(0)
-            Player._CONFIG.set("theme", "forget", str(self.FORGET.get()))
 
-        try:
-            position = Player._CONFIG["window"]["position"]
-            self.search_str = Player._CONFIG["files"]["search"]
-        except KeyError:
-            self.search_str = "official music video"
-            position = f"{self._root.winfo_x()}+{self._root.winfo_y()}"
-
-        exts = Player._CONFIG.get("files", "extensions", fallback="")
-        additional_exts = [e for e in SPLIT("[- _,;]", exts) if e]
+        forget_v = Player._CONFIG.get_inner("window", "donotshow")
+        self.FORGET.set(int(forget_v))
+        # get last window position
+        position = Player._CONFIG.get_inner("window", "position")
+        # get last search
+        self.search_str = Player._CONFIG.get_inner("searches", "last")
+        # get search history
+        self._search_history = set(Player._CONFIG.get_inner("searches", "all"))
 
         self._root.geometry("318x118+" + position)
 
@@ -170,15 +164,13 @@ class Player(Settings):
         self.isStreaming = 0
         self.change_stream = 1
         self._title_link = None
-        # if not self.isOffline:
-        #     self._title_link = self.streamer.search(self.search_str)
         # let duration be greater than 0; prevent slider being at the end on startup
         self.duration = 60
         self._song = ""
         self._title_txt = ""
-        self.yt_audio = None
-        self.yt_video = None
-        self.yt_instances = []
+        self.audio_downloader = None
+        self.video_downloader = None
+        self.download_instances = []
         self.ftime = "00:00"
         self._play_btn_command = None
         self._play_prev_command = None
@@ -193,26 +185,8 @@ class Player(Settings):
         self._slider_above = 0
         self._playing = 0
         self.reset_preferences = 0
-        _supported_extensions = {'.mp3', '.m4a', '.aac', '.mp4',
-                                 '.flac', '.avi', '.wav', '.mkv', '.flv',
-                                 '.m2v', '.m3u', '.m4v', '.mpeg1',
-                                 '.mpeg2', '.m1v', '.mpeg4', '.part',
-                                 '.3g2', '.mpeg', '.mpg', '.vob',
-                                 '.mp1', '.ogg', '.mov', '.3gp',
-                                 '.wmv', '.mod', '.mp2', '.amr',
-                                 '.wma', '.mka', '.dat', '.webm',
-                                 '.MP3', '.M4A', '.AAC', '.MP4',
-                                 '.FLAC', '.AVI', '.WAV', '.MKV', '.FLV',
-                                 '.M2V', '.M3U', '.M4V', '.MPEG1',
-                                 '.MPEG2', '.M1V', '.MPEG4', '.PART',
-                                 '.3G2', '.MPEG', '.MPG', '.VOB',
-                                 '.MP1', '.OGG', '.MOV', '.3GP',
-                                 '.WMV', '.MOD', '.MP2', '.AMR',
-                                 '.WMA', '.MKA', '.DAT', '.WEBM', }
 
-        if additional_exts:
-            _supported_extensions.update(additional_exts)
-        self._supported_extensions = tuple(_supported_extensions)
+        self._supported_extensions = tuple(EXTS)
         # value to let refresher open dir chooser; otherwise use previous
         self._open_folder = 0
         self.previous_img = PhotoImage(data=images.PREVIOUS_IMG)
@@ -264,10 +238,12 @@ class Player(Settings):
 
         rem_battery = battery.get_state()["percentage"]
         if (rem_battery < 41) and (rem_battery > 16):
-            notification.notify(title="Lazy Selector",
-                                message=f'{rem_battery}% Charge Available',
-                                app_name="Lazy Selector",
-                                app_icon=f"{DATA_DIR}\\app.ico" if exists(f"{DATA_DIR}\\app.ico") else None)
+            notification.notify(
+                title="Lazy Selector",
+                message=f'{rem_battery}% Charge Available',
+                app_name="Lazy Selector",
+                app_icon=f"{DATA_DIR}\\app.ico" if os.path.exists(f"{DATA_DIR}\\app.ico") else None
+            )
 
 # ------------------------------------------------------------------------------------------------------------------------------
 
@@ -304,6 +280,43 @@ class Player(Settings):
     def isOffline(self) -> bool:
         """ return True if no internet """
         return gethostbyname(gethostname()) == "127.0.0.1"
+
+    def get_sinfo(self, url) -> dict:
+        """
+        get sinfo from either cache or
+        extract, cache and return it
+        """
+        cache = self.open_cache()
+        sinfo = cache.get_stream(url)
+        if not sinfo:
+            sinfo = get_sanitizedinfo(url)
+            cache.cache_stream(url, sinfo)
+        return sinfo
+
+    def file_fromlistbox(self, index: int) -> str:
+        """
+        get selected file of listbox index
+        from either all_files or collected
+        """
+        if self.collected:
+            return self.collected[index]
+        return self._all_files[index]
+
+    def open_cache(self):
+        """ create and return file_cache """
+        try:
+            return self.file_cache
+        except AttributeError:
+            # create cache
+            self.file_cache = DCache(CACHE_DIR)
+            return self.file_cache
+
+    def shutdown_cache(self):
+        """ close cache """
+        try:
+            self.file_cache.close_cache()
+        except AttributeError:  # no cache opened
+            pass
 
 # ------------------------------------------------------------------------------------------------------------------------------
 
@@ -378,7 +391,6 @@ class Player(Settings):
             # one line takes 16 pixels on my machine
             height = 124 + (self.listbox.size() * 16)
             y = self._root.winfo_y()
-            # if debug: print("Listbox Height:", height, "Items:", self.listbox.size())
             difference = self._screen_height - (y + height)
             # if the new height surpasses screen bottom, then subtract the difference from y to get new y
             if difference < 0:
@@ -404,25 +416,42 @@ class Player(Settings):
             fetches and updates online streams if tab_num is 1
         """
         search_string = self.searchbar.get()
-        if self.tab_num:
-            self.search_str = search_string
-            # online stream tab
-            if len(self.search_str) > 1 and not self.isOffline:
-                self.searchlabel.configure(text="Updating...")
-                # do search here bacause;
-                # this function is threaded,
-                # query_str is needed; unlike _handle_stream_tab's search
-                self._title_link = self.streamer.search(self.search_str)
-                # update listview window in streams tab
-                self.thread_updating_streams()
-                self.searchlabel.configure(text="Search online:")
-                self.stream_index = -1
-        else:
-            # local files tab
-            # if debug: print("Searched:", searchstr)
-            self.collected = []
-            self.collection_index = -1
-            if len(search_string) > 1:
+        if len(search_string) > 1:
+            if len(self._search_history) >= 61:  # keep upto 60 searches
+                self._search_history.pop()
+            self._search_history.add(search_string)
+            if self.tab_num:
+                # online
+                if not self.isOffline:
+                    self.searchlabel.configure(text="Updating...")
+                    # do search here bacause;
+                    # this function is threaded,
+                    # query_str is needed; unlike _handle_stream_tab's search
+                    if is_url(search_string):
+                        sinfo = self.get_sinfo(search_string)
+
+                        title = get_url_details(sinfo, only="title")
+                        # update, placed last
+                        self._title_link[title] = search_string
+                        # update gui
+                        self._handle_stream_tab()  # blocking
+                        try:
+                            # get index using title after updating gui
+                            index = self.listview.get(0, "end").index(title)
+                        except ValueError:
+                            index = -1
+                        self.listview_select(index)
+                    else:  # else is search str
+                        self.search_str = search_string  # avoid saving link as last search
+                        self._title_link = self.video_search.search(search_string)
+                        # update listview window in streams tab
+                        self.thread_updating_streams()
+                        self.stream_index = -1
+                    self.searchlabel.configure(text="Search online:")
+            else:
+                # local files tab
+                self.collected = []
+                self.collection_index = -1
                 try:
                     self.back_toplaylist_btn.destroy()
                 except AttributeError:
@@ -440,7 +469,9 @@ class Player(Settings):
                 self._resize_listbox()
                 # give the button functionality after update is done
                 self.back_toplaylist_btn.configure(command=self._update_listbox)
-            else:
+
+        else:
+            if (not self.tab_num):
                 if self.listbox.size() != len(self._all_files):
                     self._update_listbox()
 
@@ -451,20 +482,91 @@ class Player(Settings):
 
         self._set_thread(self.__on_search, "Search").start()
 
+    def complete_searches(self, event):
+        """ suggest inline """
+        if (len(event.keysym) == 1) and (event.char):  # skip special keys
+
+            if self._search_history:
+                typed = self.searchbar.get()
+                start = len(typed)
+                match = ""
+                for sw in self._search_history:
+                    if sw.startswith(typed):
+                        match = sw
+                        break
+
+                if match:
+                    # update searchbar
+                    self.searchbar.delete(0, "end")
+                    self.searchbar.insert(0, match)
+                    self.searchbar.selection_range(start, "end")
+
     def entryhighlight(self, event=None):
         """ highlight text whenever search entry takes focus """
+
         if event is not None:
             event.widget.selection_range(0, "end")
 
+    def _file_metadata(self, file: str, title: str):
+        """ get file metadata """
+        try:
+            # get local file details
+            cache = self.open_cache()
+            details = cache.get_metadata(title)
+            if not details:
+                details = file_details(file, exiftool_path=EXIFTOOL_PATH)
+                cache.cache_metadata(title, details)
+
+            DetailsPopup(self._root, title, details, bg="white")
+        except IndexError:
+            pass
+
+    def _file_details(self):
+        """ get and display file metadata """
+        index = self.listbox.curselection()[-1]
+        title = self.file_fromlistbox(index)
+        filename = self.valid_path(title)
+        # thread
+        thread = self._set_thread(
+            self._file_metadata,
+            "metadata",
+            c=(filename, title)
+        )
+        thread.start()
+
+    def _url_metadata(self, url: str, title: str):
+        """ popup url details """
+        try:
+            sinfo = self.get_sinfo(url)
+
+            details = get_url_details(sinfo)  # dict for display
+            DetailsPopup(self._root, title, details, bg="white")
+        except Exception:
+            pass
+        self.status_bar.configure(text="")
+
+    def _url_details(self):
+        """ get and display url metadata """
+        self.status_bar.configure(text="Fetching metadata...")
+        title = self.listview.selection_get()
+        url = self._title_link.get(title)
+        # get metadata
+        thread = self._set_thread(
+            self._url_metadata,
+            "YTdata",
+            c=(url, title)
+        )
+        thread.start()
 # ------------------------------------------------------------------------------------------------------------------------------
 
     def _on_refresh(self):
         """ refresh playlist files function """
         self.index = -1
-        all_files = listdir(self._songspath)
+        all_files = os.listdir(self._songspath)
         self._all_files = [i for i in all_files if i.endswith(self._supported_extensions)]
         shuffle(self._all_files)
-        self._all_files.sort(key=self.counta.get_freq)
+        with self.track_records.records.transact():  # context manager to lock records
+            self._all_files.sort(key=self.track_records.sortbykey)
         if self.listbox is not None:
             self._update_listbox()
 
@@ -475,7 +577,6 @@ class Player(Settings):
             Listbox's Remove from List
         """
 
-        # if debug: print(len(self._all_files))
         for i in reversed(self.listbox.curselection()):
             if not self.collected:
                 item = self._all_files[i]
@@ -485,12 +586,10 @@ class Player(Settings):
                 self.collected.remove(item)
 
             self.listbox.delete(i)
-            # if debug: print(i, item)
             if i <= self.index:
                 # adjust to playlist shifting
                 self.index -= 1
         self._resize_listbox()
-        # if debug: print(len(self._all_files))
 
 # ------------------------------------------------------------------------------------------------------------------------------
 
@@ -507,42 +606,40 @@ class Player(Settings):
         """
             Try sending to trash if not removable disk, else delete permanently
         """
+        selected = self.listbox.curselection()
+        if selected:
+            answer = okcancel(self._root,
+                              "Lazy Selector",
+                              "Selected files will be deleted from storage\nContinue to delete?"
+                              )
+            if answer:
+                for i in reversed(selected):
 
-        # if debug: print(len(self._all_files))
-        answer = okcancel(self._root,
-                          "Lazy Selector",
-                          "Selected files will be deleted from storage\nContinue to delete?"
-                          )
-        if answer:
-            for i in reversed(self.listbox.curselection()):
+                    if self.collected:
+                        item = self.collected[i]
+                        self.collected.remove(item)
+                        if i <= self.collection_index:
+                            # adjust to 'collected' shifting
+                            self.collection_index -= 1
+                    else:
+                        item = self._all_files[i]
+                        self._all_files.remove(item)
+                        if i <= self.index:
+                            # adjust to playlist shifting
+                            self.index -= 1
 
-                if self.collected:
-                    item = self.collected[i]
-                    self.collected.remove(item)
-                    if i <= self.collection_index:
-                        # adjust to 'collected' shifting
-                        self.collection_index -= 1
-                else:
-                    item = self._all_files[i]
-                    self._all_files.remove(item)
-                    if i <= self.index:
-                        # adjust to playlist shifting
-                        self.index -= 1
+                    self.listbox.delete(i)
+                    # delete file
+                    filename = os.path.join(os.path.normpath(self._songspath), item)
+                    try:
+                        # go to next before deleting to avoid 'file is open by another program' error
+                        if filename == self._song:
+                            self._play_prev(prev=0)
+                        send2trash(filename)
+                    except Exception:
+                        safe_delete(filename)
 
-                self.listbox.delete(i)
-                # delete file
-                filename = join(normpath(self._songspath), item)
-                try:
-                    # go to next before deleting to avoid 'file is open by another program' error
-                    if filename == self._song:
-                        self._play_prev(prev=0)
-                    send2trash(filename)
-                except Exception:
-                    safe_delete(filename)
-                # if debug: print(i, item)
-
-            self._resize_listbox()
-            # if debug: print(len(self._all_files))
+                self._resize_listbox()
 
 # ------------------------------------------------------------------------------------------------------------------------------
 
@@ -574,9 +671,9 @@ class Player(Settings):
                 except ValueError:
                     pass
                 self.listbox_select(self.index, see=False)
-
+            # if adding from searched list
             elif (self.collected) and (i != self.collection_index
-                     and i != self.collection_index + 1) and self.collection_index != -1:  # if adding from searched list
+                                       and i != self.collection_index + 1) and self.collection_index != -1:
                 item = self.collected[i]
                 try:
                     if i > self.collection_index:
@@ -595,32 +692,34 @@ class Player(Settings):
                 except ValueError:
                     pass
                 self.listbox_select(self.collection_index, see=False)
-                # if debug: print(self.collection_index)
+
         except IndexError:  # IndexError occurs when nothing was selected in the Listbox
             pass
 
     def _addto_playlist(self):
-        """ 'Play Next in Playlist' function """
+        """ function to be called on 'Play Next in Playlist' """
 
-        i = self.listbox.curselection()[-1]
-        self.listbox.selection_clear(0, "end")
-        item = self.collected[i]
-        num = self._all_files.index(item)
+        try:
+            i = self.listbox.curselection()[-1]
+            self.listbox.selection_clear(0, "end")
+            item = self.collected[i]
+            num = self._all_files.index(item)
 
-        if item != self._all_files[self.index + 1]:
-            try:
-                self._all_files.remove(item)  # remove and insert later
-                # if item removed is above the currently playing in the playlist
-                if num <= self.index:
-                    # move 1 index up
-                    # since we're removing before inserting
-                    # removing an item at an index less than self.index
-                    # causes list to shift by -1
-                    # so our true index becomes self.index - 1
-                    self.index -= 1
-            except ValueError:
-                pass
-            self._all_files.insert(self.index + 1, item)
+            if item != self._all_files[self.index + 1]:
+                try:
+                    self._all_files.remove(item)  # remove and insert later
+                    # if item removed is above the currently playing in the playlist
+                    if num <= self.index:
+                        # since we're removing before inserting
+                        # removing an item at an index less than self.index
+                        # causes list to shift by -1
+                        # so our true index becomes self.index - 1
+                        self.index -= 1
+                except ValueError:
+                    pass
+                self._all_files.insert(self.index + 1, item)
+        except IndexError:
+            pass
 
 # ------------------------------------------------------------------------------------------------------------------------------
 
@@ -640,8 +739,11 @@ class Player(Settings):
             popup.add_command(label="Play Next", command=self._addto_queue)
         popup.add_separator()
         popup.add_command(label="Refresh Playlist", command=self._on_refresh)
+        popup.add_separator()
         popup.add_command(label="Delete from Storage", command=self._send2trash)
         popup.add_command(label="Remove from Playlist", command=self._delete_listitem)
+        popup.add_separator()
+        popup.add_command(label="Properties", command=self._file_details)
 
         try:
             popup.tk_popup(event.x_root, event.y_root, 0)
@@ -692,6 +794,8 @@ class Player(Settings):
         popup.add_command(label="Download Video", command=self.download_video)
         popup.add_separator()
         popup.add_command(label="Remove from Playlist", command=self._remove_streams)
+        popup.add_separator()
+        popup.add_command(label="Properties", command=self._url_details)
         try:
             popup.tk_popup(event.x_root, event.y_root, 0)
         finally:
@@ -700,7 +804,11 @@ class Player(Settings):
     def is_downloading(self):
         """ return True if downloading """
 
-        return any([yt.done for yt in self.yt_instances])
+        return any([(downloader.done is False) for downloader in self.download_instances])
+
+    def cancel_downloads(self):
+        """ cancel pending downloads """
+        return all([d.cancel_download() for d in self.download_instances])
 
 # ----------------------------------------------------------------------------------------------------------------------
 
@@ -712,17 +820,23 @@ class Player(Settings):
         link = self._title_link.get(title)
 
         try:
-            self.yt = get_yt(link)
-            audio_streams = self.yt.streams.filter(only_audio=True).order_by("abr")
-            for_display = (f"{s.itag} - {s.abr}... {cvt_bytes(s.filesize)}" for s in reversed(audio_streams))
-            self.status_bar.configure(text="")
+            sinfo = self.get_sinfo(link)
 
-            quality = getquality(self._root, title,
-                                 "Audio", for_display, self.download_location)
-            self.prepare_download(quality)
+            self.audio_streams = tuple(get_audio_streams(sinfo))
+            for_display = [f"{i}.    {s.p}    {s.filesize}" for i, s in enumerate(self.audio_streams, start=1)]
+            self.status_bar.configure(text="")
+            if for_display:
+                quality = getquality(
+                    self._root, title,
+                    "Audio", for_display,
+                    self.download_location
+                )
+                self.prepare_download(quality)
+            else:
+                self.status_bar.configure(text="Some data is missing: maybe a live stream...")
 
         except Exception as e:
-            error_msg = f"Error: {handle_pytube_errors(e)}"
+            error_msg = f"Error: {handle_yt_errors(e)}"
             self.status_bar.configure(text=error_msg)
 
     def download_audio(self):
@@ -736,26 +850,23 @@ class Player(Settings):
         self.status_bar.configure(text="Fetching video info...")
         title = self.listview.selection_get()
         link = self._title_link.get(title)
-        res_map = {"480p": "(SD)",
-                   "720p": "(HD)",
-                   "1080p": "(FHD)",
-                   "1440p": "(2K)",
-                   "2160p": "(4K)",
-                   "2880p": "(5K)",
-                   "4320p": "(8K)"}
 
         try:
-            self.yt = get_yt(link)
-            vid_strms = self.yt.streams.filter(only_video=True, subtype="mp4").asc()
-            for_display = (f"{s.itag} - {s.resolution} {res_map.get(s.resolution, '')}... {cvt_bytes(s.filesize)}" for s in vid_strms)
+            sinfo = self.get_sinfo(link)
+
+            self.video_streams = tuple(get_video_streams(sinfo))
+            for_display = [f"{i}.    {s.p}    {s.filesize}" for i, s in enumerate(self.video_streams, start=1)]
             self.status_bar.configure(text="")
 
-            quality = getquality(self._root, title,
-                                 "Video", for_display, self.download_location)
-            self.prepare_download(quality)
+            if for_display:
+                quality = getquality(self._root, title,
+                                     "Video", for_display, self.download_location)
+                self.prepare_download(quality)
+            else:
+                self.status_bar.configure(text="Some data is missing: maybe a live stream...")
 
         except Exception as e:
-            error_msg = f"Error: {handle_pytube_errors(e)}"
+            error_msg = f"Error: {handle_yt_errors(e)}"
             self.status_bar.configure(text=error_msg)
 
     def download_video(self):
@@ -768,17 +879,27 @@ class Player(Settings):
         if q:
             try:
                 q, self.download_location, f_preset = q
-                itag, quality = q.split(" - ")
+                index, quality = q.split(".    ")
+                index = int(index)
+
                 if "kbps" in quality:
-                    self.yt_audio = YTAudio(self.yt, itag=int(itag), disp=self.status_bar)
-                    self.threadpool.submit(self.yt_audio._download, self.download_location, preset=f_preset)
-                    # self.yt_audio.download(self.download_location)
-                    self.yt_instances.append(self.yt_audio)
+                    aud_strm = self.audio_streams[index]
+                    self.audio_downloader = Downloader(aud_strm, self.status_bar, self.download_location)
+                    self.threadpool.submit(
+                        self.audio_downloader.audio_download,
+                        self.download_location, prefix="Audio", preset=f_preset
+                    )
+                    # self.audio_downloader.download(self.download_location)
+                    self.download_instances.append(self.audio_downloader)
                 else:
-                    self.yt_video = YTVideo(self.yt, int(itag), disp=self.status_bar)
-                    self.threadpool.submit(self.yt_video._download, self.download_location, prefix="Video_", preset=f_preset)
-                    # self.yt_video.download(self.download_location, prefix="Video_")
-                    self.yt_instances.append(self.yt_video)
+                    vid_strm = self.video_streams[index]
+                    self.video_downloader = Downloader(vid_strm, self.status_bar, self.download_location)
+                    self.threadpool.submit(
+                        self.video_downloader.video_download,
+                        self.download_location, prefix="Video", preset=f_preset
+                    )
+                    # self.video_downloader.download(self.download_location, prefix="Video_")
+                    self.download_instances.append(self.video_downloader)
                 self.status_bar.configure(text="Added to download queue...")
             except Exception:
                 self.status_bar.configure(text="Could not start download...")
@@ -795,7 +916,7 @@ class Player(Settings):
         if self.tab_num:
             # streams tab
             self.searchlabel.configure(text="Search online:")
-            ToolTip(self.searchbar, "Type key words and\nPress 'enter' to search")
+            ToolTip(self.searchbar, "Search online\nPress 'enter' to search")
             self._root.geometry(f"318x{self._screen_height}+" + f"{self._root.winfo_x()}+{5}")
             # direct focus to searchbar
             # self.searchbar.focus_set()
@@ -806,7 +927,7 @@ class Player(Settings):
             self._resize_listbox()
 
 # ----------------------------------------------------------------------------------------------------------------------
-    # @profile
+
     def _init(self):
         """
             Main window
@@ -869,7 +990,7 @@ class Player(Settings):
                                 fg=Player.FG, relief="groove", width=40, height=40)
 
         self._more_btn = Label(self.main_frame, pady=0, padx=0, bg=Player.BG, width=20,
-                                  height=15, relief="flat", anchor="w")
+                               height=15, relief="flat", anchor="w")
         self._more_btn.bind("<ButtonRelease-1>", self._play_options)
 
         # self.progress_bar.place(x=54, y=98)
@@ -922,8 +1043,8 @@ class Player(Settings):
         self._next_btn.place(x=200, y=25)
 
         self._more_btn = Label(self.controls_frame, bg="gray28", image=self.image,
-                                  width=20, height=15, pady=0,
-                                  relief="flat", anchor="w", padx=0,)
+                               width=20, height=15, pady=0,
+                               relief="flat", anchor="w", padx=0)
         self._more_btn.bind("<ButtonRelease-1>", self._play_options)
         self._more_btn.place(x=245, y=27)
 
@@ -941,6 +1062,7 @@ class Player(Settings):
                                insertbackground="white")
         self.searchbar.bind("<Return>", self._on_search)
         self.searchbar.bind("<FocusIn>", self.entryhighlight)
+        self.searchbar.bind("<KeyRelease>", self.complete_searches)
 
         # root for notebook
         self.list_frame = Frame(self._root)
@@ -951,14 +1073,33 @@ class Player(Settings):
             # Import the Notebook.tab element from the default theme
             notebook_style.element_create("Plain.Notebook.tab", "from", "default")
             # Redefine the TNotebook Tab layout to use the new element
-            notebook_style.layout("TNotebook.Tab",
-                                  [('Plain.Notebook.tab', {'children':
-                                     [('Notebook.padding', {'side': 'top', 'children':
-                                        [('Notebook.focus', {'side': 'top', 'children':
-                                            [('Notebook.label', {'side': 'top', 'sticky': ''})],
-                                        'sticky': 'nswe'})],
-                                    'sticky': 'nswe'})],
-                                'sticky': 'nswe'})])
+            notebook_style.layout(
+                "TNotebook.Tab",
+                [
+                    (
+                        'Plain.Notebook.tab', {
+                            'children': [
+                                (
+                                    'Notebook.padding', {
+                                        'side': 'top', 'children': [
+                                            (
+                                                'Notebook.focus', {
+                                                    'side': 'top', 'children': [
+                                                        ('Notebook.label', {'side': 'top', 'sticky': ''})
+                                                    ],
+                                                    'sticky': 'nswe'
+                                                }
+                                            )
+                                        ],
+                                        'sticky': 'nswe'
+                                    }
+                                )
+                            ],
+                            'sticky': 'nswe',
+                        }
+                    )
+                ]
+            )
         except Exception:
             pass
 
@@ -1039,7 +1180,7 @@ class Player(Settings):
         else:
             # if no results to display; try getting it again
             if self._title_link is None:
-                self._title_link = self.streamer.search(self.search_str)
+                self._title_link = self.video_search.search(self.search_str)
 
             self.listview = Listbox(self.streams_listview, **self.LISTBOX_OPTIONS)
             self.stream_scrollbar = Scrollbar(self.streams_listview, command=self.listview.yview)
@@ -1060,14 +1201,14 @@ class Player(Settings):
                 # status bar
                 self.status_bar = Label(self.streams_listview, anchor="e", font=("Consolas", 8, "bold"))
                 self.status_bar.pack(fill="x")
-                # loop yt_instances assign them new display instance
-                for yt in reversed(self.yt_instances.copy()):  # reverse so that text for first-to-append is last to display
+                # loop download_instances assign them new display instance
+                for downloader in reversed(self.download_instances.copy()):  # reverse so that text for first-to-append is last to display
                     try:
-                        if yt.done:  # if done downloading
-                            self.yt_instances.remove(yt)
+                        if downloader.done:  # if done downloading
+                            self.download_instances.remove(downloader)
                             continue
                         # update display widget
-                        yt.update_disp(self.status_bar)
+                        downloader.update_disp(self.status_bar)
                     except Exception:
                         pass
                 # add items to listview
@@ -1161,27 +1302,31 @@ class Player(Settings):
         elif self.done_frame is not None:
             self.done_frame.pack_forget()
             self.done_frame = None
-        color = "gray90"
+        color = "gray97"
+        fg_color = "black"
         self._root.geometry("318x118")
         self._root.config(bg=color)
         self.sort_frame = Frame(self._root, bg=color, width=310, height=118)
         self.sort_frame.pack(padx=3, pady=5)
-        dsp = Label(self.sort_frame, bg=color, font=("New Times Roman", 9, "bold"),
+        dsp = Label(self.sort_frame, bg=color, fg=fg_color, font=("New Times Roman", 9, "bold"),
                     text="Type artist names or songs that should play first\n(separate words by space)")
         dsp.place(x=18, y=5)
 
-        cancel_btn = Button(self.sort_frame, text="Cancel", bg=color, anchor="center", command=self._init)
+        cancel_btn = Button(self.sort_frame, text="Cancel", bg=color, fg=fg_color, anchor="center", command=self._init)
         cancel_btn.place(x=18, y=80)
         ToolTip(cancel_btn, "Use default shuffle")
-        check_btn = Checkbutton(self.sort_frame, bg=color, text="Don't show this again", onvalue=1, offvalue=0, variable=self.FORGET)
+        check_btn = Checkbutton(self.sort_frame, bg=color, text="Don't show this again",
+                                onvalue=1, offvalue=0, variable=self.FORGET)
         check_btn.place(x=77, y=79)
-        ok_btn = Button(self.sort_frame, text="OK", bg=color, command=self._sort_by_keys, padx=10, pady=1, anchor="center")
+        ok_btn = Button(self.sort_frame, text="OK", bg=color, fg=fg_color,
+                        command=self._sort_by_keys, padx=10, pady=1, anchor="center")
         ok_btn.place(x=237, y=80)
 
-        label1 = Label(self.sort_frame, bg=color, text="Keywords:",
+        label1 = Label(self.sort_frame, bg=color, fg=fg_color, text="Keywords:",
                        font=("New Times Roman", 9, "bold"), anchor="e")
         label1.place(x=25, y=50)
-        self.keywords_shelf = Entry(self.sort_frame, bg="gray94", relief="groove", width=30)
+        self.keywords_shelf = Entry(self.sort_frame, bg="gray95", fg="black", insertbackground=fg_color,
+                                    relief="groove", width=30)
         self.keywords_shelf.place(x=98, y=52)
         self.keywords_shelf.bind("<Return>", self._sort_by_keys)
 
@@ -1195,6 +1340,7 @@ class Player(Settings):
         try:
             if self.tab_num:  # online streams
                 if not self.isOffline:
+                    self.stream_index = self.listview.curselection()[-1]
                     # clear text to avoid confusion
                     label_text = self.status_bar["text"]
                     if label_text.startswith(("ERROR", "Error", "Could not")):  # clear if text in tuple
@@ -1204,17 +1350,16 @@ class Player(Settings):
                     # get link from title
                     title = self.listview.selection_get()
                     link = self._title_link.get(title)
-                    stream_link = pafy.new(link, basic=False)
-                    try:
-                        self._song = stream_link.getbestaudio().url
-                    except AttributeError:  # for those lacking DASH audio streams
-                        self._song = stream_link.getbest().url
+                    sinfo = self.get_sinfo(link)
+
+                    stream = get_best_audio(sinfo)
+                    self._song = stream.url
+
                     # length in seconds
-                    self.duration = stream_link.length
+                    self.duration = stream.length
                     self._title_txt = self._convert(title)
                     self.progress_bar["to"] = int(self.duration)
                     self.isStreaming = 1
-                    self.stream_index = self.listview.curselection()[-1]
                     change = 1
                 else:
                     self._title_link = None
@@ -1230,22 +1375,14 @@ class Player(Settings):
                 self.isStreaming = 0
                 change = 1
             if change:
-                # if debug: print("Index:", self.collection_index, self._song)
                 self._mixer(self._song).play()
                 # wait for media meta to be parsed
                 self._set_thread(self._updating, "Helper").start()
                 self.play_btn_img = self.pause_img
                 self._play_btn.configure(image=self.play_btn_img)
 
-        except OSError:
-            self.status_bar.configure(text="ERROR: Sign in required...")
-
         except Exception:
-            pass
-            # print("Error on __on_click func:", e)
-            # Slow internet may cause problems, or going offline after connection
-            # self._title_link = None
-            # self.thread_updating_streams()
+            self.status_bar.configure(text="Could not fetch audio...")
 
         if self.tab_num:
             self.searchlabel.configure(text="Search online:")
@@ -1359,6 +1496,26 @@ class Player(Settings):
 
 # ------------------------------------------------------------------------------------------------------------------------------
 
+    def _create_trecords(self, r_dir, cwfolder):
+        """
+        create an instance of TrackRecords and return it
+        """
+        try:
+            self.track_records.close()
+        except AttributeError:
+            pass
+        return TrackRecords(r_dir, cwfolder)
+
+    def _close_trecords(self):
+        """ close records """
+        try:
+            self.track_records.close()
+        except AttributeError:
+            pass
+
+# ------------------------------------------------------------------------------------------------------------------------------
+
+    # @profile_function
     def _refresher(self):
         """
             Updates folder files where necessary, or those passed as CL arguments
@@ -1369,31 +1526,31 @@ class Player(Settings):
         self.collection_index = -1
         all_files = []
         if len(PASSED_FILES) > 0:
-            # if debug: print(PASSED_FILES)
-            self._all_files = [basename(i) for i in PASSED_FILES if i.endswith(self._supported_extensions)]
-            self._songspath = dirname(PASSED_FILES[0])
+            self._all_files = [os.path.basename(i) for i in PASSED_FILES if i.endswith(self._supported_extensions)]
+            self._songspath = os.path.dirname(PASSED_FILES[0])
             self.download_location = self._songspath
             PASSED_FILES.clear()
-            t = basename(self._songspath) if basename(self._songspath) else "Disk"
+            t = os.path.basename(self._songspath) if os.path.basename(self._songspath) else "Disk"
             self._root.title(f"{t} - Lazy Selector")
-            # change this implementation
-            self.counta = Counta(self._songspath, dst=DATA_DIR, clean=all_files)
+
+            # track records
+            self.track_records = self._create_trecords(TRACK_RDIR, self._songspath)
             self.on_eos()
             return
 
         else:
-            try:
-                # try getting the current open folder
-                file = Player._CONFIG["files"]["folder"]
-                self._songspath = file
-            except KeyError:
-                # avoid 'name `file` is not defined' error
-                file = ""
-            if (self._open_folder) or (not exists(file)):
+
+            # try getting the current open folder
+            file = Player._CONFIG.get_inner("folders", "last")
+            self._songspath = file
+            if (self._open_folder) or (not os.path.exists(file)):
                 # normalize path
-                chosen_dir = normpath(askdirectory(title="Choose a folder with audio/video files",
-                                                   initialdir=expanduser("~\\"))
-                                      )
+                chosen_dir = os.path.normpath(
+                    askdirectory(
+                        title="Choose a folder with audio/video files",
+                        initialdir=os.path.expanduser("~\\")
+                    )
+                )
                 self._songspath = chosen_dir if chosen_dir != "." else ""  # raise FileNotFoundError below
             # when a user selects the same folder playing again
             if (file == self._songspath) and (self.index < len(self._all_files) - 1):
@@ -1402,16 +1559,16 @@ class Player(Settings):
             else:
                 # update
                 try:
-                    all_files = listdir(self._songspath)
+                    all_files = os.listdir(self._songspath)
 
                 except FileNotFoundError:  # if Cancel clicked in the dialog _songspath == ''
                     # if log file isn't empty and the last song had played, update playlist
-                    # executes when on clicks cancel on_eop
+                    # executes when one clicks cancel on_eop
                     if (file != "") and (self.index >= len(self._all_files) - 1):
                         self._songspath = file
-                        all_files = listdir(self._songspath)
+                        all_files = os.listdir(self._songspath)
                     # if no directory was chosen and the last song had not played, no updating playlist
-                    elif (self._songspath == "") and (self.index <= len(self._all_files) - 1):
+                    elif (file != "") and (self.index <= len(self._all_files) - 1):
                         # avoid 'FileNotFound' error if _songspath remains an empty string
                         self._songspath = file
 
@@ -1425,24 +1582,23 @@ class Player(Settings):
                             self._refresher()
                         else:
                             self._root.destroy()
-                            sys.exit()
+                            Player._CONFIG.save()
+                            sys.exit(0)
         if len(all_files) > 0:
             self.download_location = self._songspath
             self.index = -1
             # change this implementation
-            self.counta = Counta(self._songspath, dst=DATA_DIR, clean=all_files)
-            try:
-                Player._CONFIG.add_section("files")
-            except Exception:
-                pass
-            Player._CONFIG.set("files", "folder", self._songspath)  # save to config file
+            self.track_records = self._create_trecords(TRACK_RDIR, self._songspath)
+
+            Player._CONFIG.update_inner("folders", "last", self._songspath)  # save to config file
             self._root.title("LOADING...")
             self._all_files = [i for i in all_files if i.endswith(self._supported_extensions)]
 
             shuffle(self._all_files)
-            self._all_files.sort(key=self.counta.get_freq)
+            with self.track_records.records.transact():  # contxt manager to lock records
+                self._all_files.sort(key=self.track_records.sortbykey)
 
-            t = basename(self._songspath) if len(basename(self._songspath)) != 0 else "Disk"
+            t = os.path.basename(self._songspath) if len(os.path.basename(self._songspath)) != 0 else "Disk"
             self._root.title(f"{t} - Lazy Selector")
             if self.FORGET.get():
                 if self.controls_frame is not None:
@@ -1478,13 +1634,13 @@ class Player(Settings):
 
     def valid_path(self, filename):
         """ search for file in the two folder records """
-        filepath = join(self._songspath, filename)
-        if not exists(filepath):
+        filepath = os.path.join(self._songspath, filename)
+        if not os.path.exists(filepath):
             for folder in self.ALT_DIRS:
-                filepath = join(folder, filename)
-                if exists(filepath):
+                filepath = os.path.join(folder, filename)
+                if os.path.exists(filepath):
                     break
-        return filepath if exists(filepath) else ""
+        return filepath if os.path.exists(filepath) else ""
 
     def _loader(self):
         """
@@ -1513,11 +1669,12 @@ class Player(Settings):
 
     def listview_select(self, index, actvt=True):
         """ select item at index of self.listview """
-        self.listview.selection_clear(0, "end")
-        self.listview.selection_set(index)
-        self.listview.see(index)
-        if actvt:
-            self.listview.activate(index)
+        if index >= 0:
+            self.listview.selection_clear(0, "end")
+            self.listview.selection_set(index)
+            self.listview.see(index)
+            if actvt:
+                self.listview.activate(index)
 
 # ------------------------------------------------------------------------------------------------------------------------------
 
@@ -1529,10 +1686,10 @@ class Player(Settings):
         files_ = askopenfilenames(title="Choose audio/video files",
                                         filetypes=[("All files", "*")],
                                         initialdir=self.FILENAMES_INITIALDIR)
-        loaded_files = [basename(i) for i in files_ if i.endswith(self._supported_extensions)]
+        loaded_files = [os.path.basename(i) for i in files_ if i.endswith(self._supported_extensions)]
 
         if loaded_files:
-            self.FILENAMES_INITIALDIR = dirname(files_[0])
+            self.FILENAMES_INITIALDIR = os.path.dirname(files_[0])
             self.ALT_DIRS.add(self.FILENAMES_INITIALDIR)
 
             for loaded_file in loaded_files:
@@ -1564,16 +1721,15 @@ class Player(Settings):
             # sometimes the online tab song title will display while playing local file
             # this happens on loading timeout and the play button is clicked for the first time
 
-            if isfile(load):
+            if os.path.isfile(load):
                 # assume it's a file, otherwise self._title_txt is changed in on_click func
-                self._title_txt = self._convert(splitext(basename(load))[0])
+                self._title_txt = self._convert(os.path.splitext(os.path.basename(load))[0])
             self.shuffle_mixer.load(load)
             # preset mute and playback mode
             self.shuffle_mixer.mute(self.mute_variable.get())
             self.shuffle_mixer.loop = self.loopone_variable.get()
             return self.shuffle_mixer
-        except Exception as e:  # handle these exceptions well
-            print("Error on _mixer:", e)
+        except Exception:  # handle these exceptions well
             return self.shuffle_mixer
 
 # ------------------------------------------------------------------------------------------------------------------------------
@@ -1603,7 +1759,7 @@ class Player(Settings):
                 # showinfo is blocking
                 showinfo(self._root,
                          "Feedback - Lazy Selector",
-                         f"{basename(self._songspath) if len(basename(self._songspath)) != 0 else 'Disk'} "
+                         f"{os.path.basename(self._songspath) if len(os.path.basename(self._songspath)) != 0 else 'Disk'} "
                          "folder has no audio/video files.\nChoose a different folder.")
             except AttributeError:  # if self._songspath never initialized
                 showinfo(self._root, "Feedback - Lazy Selector", "No folder was selected!")
@@ -1759,6 +1915,15 @@ class Player(Settings):
 
 # ------------------------------------------------------------------------------------------------------------------------------
 
+    def _release_resources(self, exit_code):
+        """ close the app """
+        self.shutdown_cache()
+        self._close_trecords()
+        self.threadpool.shutdown()
+        self.shuffle_mixer.delete()
+        self._root.destroy()
+        sys.exit(exit_code)
+
     def _kill(self):
         """
             Confirm exit if paused, save modifications
@@ -1766,55 +1931,40 @@ class Player(Settings):
         try:
             try:
                 # remove read-only
-                chmod(DATA_DIR + "\\lazylog.cfg", S_IWUSR | S_IREAD)
+                os.chmod(os.path.join(DATA_DIR, "lazylog.cfg"), S_IWUSR | S_IREAD)
             except Exception:
                 pass
-            Player._CONFIG.set("theme", "forget", str(self.FORGET.get()))
-            Player._CONFIG.set("files", "search", self.search_str)
+            Player._CONFIG.update_inner("window", "donotshow", str(self.FORGET.get()))
+            Player._CONFIG.update_inner("searches", "last", self.search_str)
+            Player._CONFIG.update_inner("searches", "all", list(self._search_history))
+            is_paused, is_downloading = (self.shuffle_mixer.state.value == 4), self.is_downloading()
             # if mixer paused
-            if self.shuffle_mixer.state.value == 4:
-                if okcancel(self._root, "Lazy Selector", "Music is paused.\nDo you want to quit anyway?"):
+            if is_paused or is_downloading:
 
-                    try:
-                        Player._CONFIG.add_section("window")
-                    except Exception:
-                        pass
-                    Player._CONFIG.set("window", "position", f"{self._root.winfo_x()}+{self._root.winfo_y()}")
-                    try:
-                        with open(DATA_DIR + "\\lazylog.cfg", "w") as f:
-                            Player._CONFIG.write(f)
-                    except Exception:
-                        pass
+                msg = f"Music paused: {is_paused}\nDownloading: {is_downloading}\nDo you want to quit anyway?"
+                if okcancel(self._root, "Lazy Selector", msg):
+
+                    Player._CONFIG.update_inner("window", "position", f"{self._root.winfo_x()}+{self._root.winfo_y()}")
+
+                    Player._CONFIG.save()
+                    # cancel downloads
+                    self.cancel_downloads()
                     # set read-only attr; unsupported from this version onwards
                     # chmod(DATA_DIR + "\\lazylog.cfg", S_IREAD | S_IRGRP | S_IROTH)
-                    # self.threadpool.shutdown(cancel_futures=True)
-                    self.shuffle_mixer.delete()
-                    self._root.destroy()
-                    sys.exit(0)
-            else:
+                    self._release_resources(0)
+            else:  # if not paused and not downloading
                 # pause first
                 self._stop_play()
-                try:
-                    Player._CONFIG.add_section("window")
-                except Exception:
-                    pass
-                Player._CONFIG.set("window", "position", f"{self._root.winfo_x()}+{self._root.winfo_y()}")
-                try:
-                    with open(DATA_DIR + "\\lazylog.cfg", "w") as f:
-                        Player._CONFIG.write(f)
-                except Exception:
-                    pass
+
+                Player._CONFIG.update_inner("window", "position", f"{self._root.winfo_x()}+{self._root.winfo_y()}")
+
+                Player._CONFIG.save()
                 # set read-only attr; unsupported from this version onwards
                 # chmod(DATA_DIR + "\\lazylog.cfg", S_IREAD | S_IRGRP | S_IROTH)
                 # self.threadpool.shutdown(cancel_futures=True)
-                self.shuffle_mixer.delete()
-                self._root.destroy()
-                sys.exit(0)
+                self._release_resources(0)
         except Exception:
-            # self.threadpool.shutdown(cancel_futures=True)
-            self.shuffle_mixer.delete()
-            self._root.destroy()
-            sys.exit(1)
+            self._release_resources(1)
 
 # ------------------------------------------------------------------------------------------------------------------------------
 
@@ -1832,13 +1982,13 @@ class Player(Settings):
         """delete prefs"""
         try:
             if self.reset_preferences:
-                Player._CONFIG.set("theme", "bg", Player.BG)
-                Player._CONFIG.set("theme", "fg", Player.FG)
+                Player._CONFIG.update_inner("theme", "bg", Player.BG)
+                Player._CONFIG.update_inner("theme", "fg", Player.FG)
                 self.FORGET.set(1)
                 self.reset_preferences = 0
             else:
-                Player._CONFIG.set("theme", "bg", "gray28")
-                Player._CONFIG.set("theme", "fg", "gray97")
+                Player._CONFIG.update_inner("theme", "bg", "gray28")
+                Player._CONFIG.update_inner("theme", "fg", "gray97")
                 self.FORGET.set(0)
                 self.reset_preferences = 1
         except Exception:
@@ -1860,12 +2010,12 @@ class Player(Settings):
             side = "nw"
 
             def mailto(event):
-                subject = "Lazy Selector Version 4.4".replace(" ", "%20")
+                subject = f"Lazy Selector Version {__VERSION__}".replace(" ", "%20")
                 body = "Hello, Ernesto!".replace(" ", "%20")
                 open_tab(f"mailto:?to=ernestondieki12@gmail.com&subject={subject}&body={body}", new=2)
 
             display_text = Label(self.top, pady=10, padx=50, fg="DeepSkyBlue4",
-                                 text="Lazy Selector\nVersion: 4.4\nDeveloped by: Ernesto\nernestondieki12@gmail.com",
+                                 text=f"Lazy Selector\nVersion: {__VERSION__}\nDeveloped by: Ernesto",
                                  font=("arial", 12, "bold"), relief="groove")
             display_text.pack(pady=10)
             ToolTip(display_text, "Contact the Developer")
@@ -1886,11 +2036,21 @@ class Player(Settings):
                 # for the first item, use 40, 10
                 except TypeError:
                     return 40, 10
+
             text_font = ("New Times Roman", 12, "italic")
-            self.display_canvas.create_text(canvas_xy(), text="         This project was intended for own use.", anchor="w", font=text_font)
+            self.display_canvas.create_text(
+                canvas_xy(),
+                text="         This project was intended for own use.",
+                anchor="w", font=text_font
+            )
 
             self.portrait_image = PhotoImage(data=images.SOKORO_IMG)
-            self.display_canvas.create_text(95, canvas_xy()[1] + 20, text="In loving memory of grandpa, Joseph", anchor="w", font=("New Times Roman", 10, "italic bold"))
+            self.display_canvas.create_text(
+                95,  # x
+                canvas_xy()[1] + 20,  # y
+                text="In loving memory of grandpa, Joseph",
+                anchor="w", font=("New Times Roman", 10, "italic bold")
+            )
             self.display_canvas.create_image(180, canvas_xy()[1], image=self.portrait_image, anchor=side)
             self.display_canvas.config(scrollregion=self.display_canvas.bbox("all"))
             self.display_canvas.bind("<MouseWheel>", scroll_widget)
@@ -1917,13 +2077,10 @@ class Player(Settings):
             Player.BG = bg
             Player.FG = fg
             Player.MN = bg
-            try:
-                Player._CONFIG.add_section("theme")
-            except Exception:
-                pass
+
             if not self.reset_preferences:
-                Player._CONFIG.set("theme", "bg", Player.BG)
-                Player._CONFIG.set("theme", "fg", Player.FG)
+                Player._CONFIG.update_inner("theme", "bg", Player.BG)
+                Player._CONFIG.update_inner("theme", "fg", Player.FG)
             self.check_theme_mode()
             self._update_theme()
 
@@ -1974,7 +2131,13 @@ class Player(Settings):
         """ format elapsed time for display """
         if self._uptime >= 3600:
             self._root.update_idletasks()
-            return timedelta(seconds=self._uptime)
+            # string format timedelta
+
+            if self._uptime > 86400:  # if more than a day
+                fmt = "{days}d:{hours:02}:{minutes:02}"
+            else:
+                fmt = "{hours}:{minutes:02}:{seconds:02}"
+            return strfdelta(self._uptime, fmt=fmt)
         else:
             mins, secs = divmod(self._uptime, 60)
             return f"{round(mins):02}:{round(secs):02}"
@@ -1997,14 +2160,14 @@ class Player(Settings):
             self._playing = 1
         # else if paused
         elif self.shuffle_mixer.state.value == 4:
-            self._unpause()
-            # value = round(float(value))
-            # self._progress_variable.set(value)
-            # self._uptime = self._progress_variable.get()
-            # # convert to ms
-            # self.shuffle_mixer.seek(value * 1000)
-            # self.ftime = self.format_time()
-            # self.current_time_label.configure(text=self.ftime)
+            # self._unpause()
+            value = round(float(value))
+            self._progress_variable.set(value)
+            self._uptime = self._progress_variable.get()
+            # convert to ms
+            self.shuffle_mixer.seek(value * 1000)
+            self.ftime = self.format_time()
+            self.current_time_label.configure(text=self.ftime)
 
 # ------------------------------------------------------------------------------------------------------------------------------
 
@@ -2032,9 +2195,9 @@ class Player(Settings):
                                 self.stream_manager()
                         else:
                             try:
-                                if exists(self._song):
+                                if os.path.exists(self._song):
                                     # add 1 to play frequency
-                                    self.counta.log_item(basename(self._song), self.counta.get_freq(basename(self._song)) + 1)
+                                    self.track_records.log(self._song)
                             except AttributeError:
                                 pass
                             self.on_eos()
@@ -2059,10 +2222,12 @@ class Player(Settings):
                         sleep(1)
                         if (rem_battery < 16) and not said:
                             # a reminder
-                            notification.notify(title="Lazy Selector",
-                                                message=f'{rem_battery}% Charge Available',
-                                                app_name="Lazy Selector",
-                                                app_icon=f"{DATA_DIR}\\app.ico" if exists(f"{DATA_DIR}\\app.ico") else None)
+                            notification.notify(
+                                title="Lazy Selector",
+                                message=f'{rem_battery}% Charge Available',
+                                app_name="Lazy Selector",
+                                app_icon=f"{DATA_DIR}\\app.ico" if os.path.exists(f"{DATA_DIR}\\app.ico") else None
+                            )
                             said = 1
                     # player ended
                     elif self.shuffle_mixer.state.value == 6:
@@ -2071,10 +2236,12 @@ class Player(Settings):
                 else:
                     if (rem_battery < 16) and not said:
                         # a reminder
-                        notification.notify(title="Lazy Selector",
-                                            message=f'{rem_battery}% Charge Available',
-                                            app_name="Lazy Selector",
-                                            app_icon=f"{DATA_DIR}\\app.ico" if exists(f"{DATA_DIR}\\app.ico") else None)
+                        notification.notify(
+                            title="Lazy Selector",
+                            message=f'{rem_battery}% Charge Available',
+                            app_name="Lazy Selector",
+                            app_icon=f"{DATA_DIR}\\app.ico" if os.path.exists(f"{DATA_DIR}\\app.ico") else None
+                        )
                         said = 1
                     sleep(2)
 
@@ -2091,7 +2258,6 @@ class Player(Settings):
         self._playing = 0
         if self.collection_index > len(self.collected) - 1:
             self.collection_index = 0
-        # if debug: print("Collection Manager Index after:", self.collection_index)
         self.listbox_select(self.collection_index)
         self._on_click()
 
@@ -2114,7 +2280,6 @@ class Player(Settings):
         """
             Insert match of sequence at index 0
         """
-        # if debug: print(keywords)
         if keywords is None or len(keywords) < 3 or keywords == "":
             pass
         else:
@@ -2138,11 +2303,11 @@ class Player(Settings):
 PASSED_FILES = sys.argv[1:]
 
 
-current_pid = getpid()
+current_pid = os.getpid()
 
 
 def close_prev():
-    for line in popen("tasklist").readlines():
+    for line in os.popen("tasklist").readlines():
         if line.startswith("Lazy_Selector.exe"):
             if line.split()[1] != str(current_pid):
                 s = STARTUPINFO()
@@ -2153,16 +2318,16 @@ def close_prev():
 
 Thread(target=close_prev, daemon=1).start()
 
-# tk = Tk()
-# p = Player(tk)
-# tk.mainloop()
-try:
-    tk = Tk()
-    p = Player(tk)
-    tk.mainloop()
-except Exception as e:
-    print(e)
-    tk.destroy()
+tk = Tk()
+
+p = Player(tk)
+tk.mainloop()
+
+# try:
+#     p = Player(tk)
+#     tk.mainloop()
+# except Exception:
+#     tk.destroy()
 
 sys.exit(1)
 # TODO

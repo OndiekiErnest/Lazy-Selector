@@ -1,6 +1,4 @@
-__author__ = "Ernesto"
-__email__ = "ernestondieki12@gmail.com"
-
+""" custom popup windows """
 
 from tkinter import (
     Toplevel,
@@ -20,19 +18,20 @@ try:
 except ImportError:
     from idlelib.tooltip import Hovertip as ToolTip
 from os.path import normpath
+from urllib.request import urlopen
+from io import BytesIO
+from PIL import Image, ImageTk
+from core import (
+    scroll_widget,
+)
 
 
 PRESETS = ("ultrafast", "superfast",
            "veryfast", "faster", "fast", "medium",
            "slow", "slower", "veryslow")
-PRESET_TIP = """Presets for post-download processing
+PRESET_TIP = """Presets for ffmpeg
 Slower preset takes longer to complete
 and the final file size is likely to be smaller"""
-
-
-def scroll_widget(event):
-    """ event function to bind to mouse wheel """
-    event.widget.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
 
 def singleton(cls):
@@ -46,7 +45,8 @@ def singleton(cls):
     def wrapper(*args, **kwargs):
 
         if isinstance(instance[0], Toplevel):  # Toplevel in this case is StreamsPopup
-            # clear select_var then close
+
+            # clear then close
             instance[0].on_close()
             # instance.clear()
 
@@ -54,6 +54,25 @@ def singleton(cls):
         return instance[0]
 
     return wrapper
+
+
+class Detail(Frame):
+
+    def __init__(self, master, k: str, v: str, **kwargs):
+        super().__init__(master, **kwargs)
+        self.root = master
+        if k == "URL":
+            txt_type = "italic"
+        else:
+            txt_type = "normal"
+
+        key = Label(self, text=k, width=10, bg="gray97", anchor="e", justify="left")
+        key.pack(side="left", padx=2)
+
+        value = Label(self, text=v, bg="white", anchor="w", justify="left", font=("", 8, txt_type))
+        value.pack(side="left")
+
+        self.update()
 
 
 class PathInput(Frame):
@@ -87,6 +106,7 @@ class PathInput(Frame):
 
 @singleton
 class StreamsPopup(Toplevel):
+    """ show download details, get chosen """
 
     def __init__(self, master, title, f_type, streams, idir, **kwargs):
 
@@ -97,7 +117,7 @@ class StreamsPopup(Toplevel):
         self.geometry(f"300x300+{self.root.winfo_x() + 2}+{self.root.winfo_y() + 514}")
         # prevent flashing of this window in a different pos
         self.update()
-        self.wm_transient(self.root)
+        self.wm_transient(self.root)  # stay on root
         self.configure(bg="white")
         self.wm_protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -105,10 +125,10 @@ class StreamsPopup(Toplevel):
         self.select_var.trace_add(("write", "unset"), self.changebtnstate)
         # the following are not scrollable:
         # title label, ok btn, path_area, preset area
-        self.title = Label(self, text=f"Choose {f_type} Quality to Download",
-                           font=("arial", 11, "bold underline"), pady=3,
-                           bg="white")
-        self.title.pack(side="top", fill="x")
+        self.title_label = Label(self, text=f"Choose {f_type} Quality to Download",
+                                 font=("arial", 11, "bold underline"), pady=3,
+                                 bg="white")
+        self.title_label.pack(side="top", fill="x")
         # download button
         self.ok = Button(self, text="Download", state="disabled",
                          bg="gray20", fg="white", command=self.destroy)
@@ -127,18 +147,18 @@ class StreamsPopup(Toplevel):
         self.path_area.pack(side="bottom", anchor="center", fill="x")
 
         # create a canvas and a vertical scrollbar for scrolling it
-        vscrollbar = Scrollbar(self, orient="vertical")
-        vscrollbar.pack(side="right", fill="y")
+        self.vscrollbar = Scrollbar(self, orient="vertical")
+        self.vscrollbar.pack(side="right", fill="y")
         self.canvas = Canvas(self, bd=0,
                              height=350,  # starting height
                              highlightthickness=0,
-                             yscrollcommand=vscrollbar.set,
+                             yscrollcommand=self.vscrollbar.set,
                              bg="white")
         # bind to mouse scrolls
         self.canvas.bind("<MouseWheel>", scroll_widget)
 
         self.canvas.pack(side="left", fill="both", expand=True)
-        vscrollbar.configure(command=self.canvas.yview)
+        self.vscrollbar.configure(command=self.canvas.yview)
 
         # create a frame inside the canvas which will be scrolled with it
         self.interior = Frame(self.canvas, **kwargs)
@@ -169,7 +189,103 @@ class StreamsPopup(Toplevel):
 
     def on_close(self):
         """ clear variable on window close """
+        # remove these commands as they persist across instances causing errors
         self.select_var.set(" ")
+        self.destroy()
+        del self
+
+
+@singleton
+class DetailsPopup(Toplevel):
+    """ show details from a list """
+
+    def __init__(self, master, title, details: dict, **kwargs):
+
+        super().__init__(master, highlightbackground="gray20", **kwargs)
+        # self.overrideredirect(True)
+        self.root = master
+
+        self.wm_title(title)
+        self.geometry(f"300x300+{self.root.winfo_x() + 2}+{self.root.winfo_y() + 514}")
+        # prevent flashing of this window in a different pos
+        self.update()
+        self.wm_transient(self.root)  # always stay on top of root
+        self.configure(bg="white")
+
+        # the following are not scrollable:
+        # path_area, preset area
+
+        # create a canvas and a vertical scrollbar for scrolling it
+        self.vscrollbar = Scrollbar(self, orient="vertical")
+        self.vscrollbar.pack(side="right", fill="y")
+        self.hscrollbar = Scrollbar(self, orient="horizontal")
+        self.hscrollbar.pack(side="bottom", fill="x")
+
+        self.canvas = Canvas(self, bd=0,
+                             highlightthickness=0,
+                             yscrollcommand=self.vscrollbar.set,
+                             xscrollcommand=self.hscrollbar.set,
+                             bg="white")
+        # bind to mouse scrolls
+        self.canvas.bind("<MouseWheel>", scroll_widget)
+
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.vscrollbar.configure(command=self.canvas.yview)
+        self.hscrollbar.configure(command=self.canvas.xview)
+
+        # create a frame inside the canvas which will be scrolled with it
+        self.interior = Frame(self.canvas, **kwargs)
+        self.canvas.create_window(0, 0, window=self.interior, anchor="nw")
+
+        # thumbnail label
+        self.thumbnail_label = Label(self.interior, anchor="nw",
+                                     justify="left", bg="white")
+        self.thumbnail_label.pack(side="top", anchor="nw", pady=3, padx=85)
+
+        # thumbnail
+        url = details.pop("thumbnail", None)
+
+        # add details
+        for k, v in details.items():
+            det = Detail(self.interior, k.upper(), v, bg="white")
+            det.pack(fill="x", padx=3)
+
+        # create thumbnail
+        self.fetch_thumbnail(url)
+
+        # scroll region
+        self.set_scrollregion()
+
+        # reset the view
+        self.canvas.xview_moveto(0)
+        self.canvas.yview_moveto(0)
+
+    def set_scrollregion(self, event=None):
+        """ set the scroll region of the canvas"""
+        x1, y1, x2, y2 = self.canvas.bbox("all")
+        y2 += 100
+        self.canvas.configure(scrollregion=(x1, y1, x2, y2))
+
+    def fetch_thumbnail(self, url):
+        """ fetch thumbnail and create PhotoImage for display """
+        if url:
+            if isinstance(url, bytes):
+                data = url
+            else:
+                request = urlopen(url)
+                data = request.read()
+                request.close()
+
+            im = Image.open(BytesIO(data))
+            im.thumbnail((128, 128), Image.Resampling.LANCZOS)
+
+            timage = ImageTk.PhotoImage(image=im)
+            # display
+            self.thumbnail_label.configure(image=timage, bg="black")
+            self.thumbnail_label.image = timage  # took hours to figure out this important
+
+    def on_close(self):
+        """ window close """
         self.destroy()
         del self
 
@@ -220,8 +336,16 @@ class Quiz(_Base):
         super().__init__(master, title, **kwargs)
 
     def create_widgets(self):
-        Label(self, image="::tk::icons::question", font=("", 9), bg="white").grid(row=0, column=0, pady=7, padx=5, sticky="w")
-        Label(self, text=f"{self.quiz}", bg="white").grid(row=0, column=1, columnspan=2, pady=7, sticky="w")
+        Label(
+            self, image="::tk::icons::question",
+            font=("", 9), bg="white").grid(
+                row=0, column=0, pady=7,
+                padx=5, sticky="w"
+        )
+        Label(
+            self, text=f"{self.quiz}", bg="white").grid(
+                row=0, column=1, columnspan=2, pady=7, sticky="w"
+        )
         self.okay_btn = tButton(self, text="OK", command=self.okay)
         self.okay_btn.grid(row=1, column=1, sticky="e")
         self.cancel_btn = tButton(self, text="Cancel", command=self.cancel)
@@ -240,8 +364,14 @@ class Info(_Base):
         super().__init__(master, title, **kwargs)
 
     def create_widgets(self):
-        Label(self, image="::tk::icons::information", font=("", 9), bg="white").grid(row=0, column=0, pady=7, padx=5, sticky="w")
-        Label(self, text=f"{self.msg}", bg="white").grid(row=0, column=1, columnspan=2, pady=7, sticky="w")
+        Label(
+            self, image="::tk::icons::information",
+            font=("", 9), bg="white").grid(
+                row=0, column=0, pady=7, padx=5, sticky="w"
+        )
+        Label(self, text=f"{self.msg}", bg="white").grid(
+            row=0, column=1, columnspan=2, pady=7, sticky="w"
+        )
         self.okay_btn = tButton(self, text="OK", command=self.cancel)
         self.okay_btn.grid(row=1, column=2, padx=7, sticky="e")
         super().create_widgets()
