@@ -61,16 +61,19 @@ class Detail(Frame):
     def __init__(self, master, k: str, v: str, **kwargs):
         super().__init__(master, **kwargs)
         self.root = master
+
         if k == "URL":
             txt_type = "italic"
         else:
             txt_type = "normal"
 
-        key = Label(self, text=k, width=10, bg="gray97", anchor="e", justify="left")
-        key.pack(side="left", padx=2)
+        key = Label(self, text=k, width=10, bg="gray95", anchor="ne", justify="right")
+        key.pack(side="left", padx=2, anchor="nw")
 
-        value = Label(self, text=v, bg="white", anchor="w", justify="left", font=("", 8, txt_type))
-        value.pack(side="left")
+        value = Label(self, text=v, bg="white", anchor="w",
+                      justify="left", font=("", 8, txt_type)
+                      )
+        value.pack(side="left", anchor="nw")
 
         self.update()
 
@@ -112,6 +115,7 @@ class StreamsPopup(Toplevel):
 
         super().__init__(master, highlightbackground="gray20", **kwargs)
         self.root = master
+        self.streams_len = len(streams)
 
         self.title(title)
         self.geometry(f"300x300+{self.root.winfo_x() + 2}+{self.root.winfo_y() + 514}")
@@ -168,15 +172,19 @@ class StreamsPopup(Toplevel):
             radiobtn = Radiobutton(self.interior, variable=self.select_var, anchor="w",
                                    value=stream, text=stream, bg="white")
             radiobtn.pack(fill="x")
+
         # update scroll region
         self.set_scrollregion()
         # reset the view
         self.canvas.xview_moveto(0)
         self.canvas.yview_moveto(0)
 
-    def set_scrollregion(self, event=None):
+    def set_scrollregion(self):
         """ set the scroll region of the canvas"""
-        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        self.canvas.update()
+        x1, y1, x2, y2 = 0, 0, 130, (self.streams_len * 25)
+        y2 += 25
+        self.canvas.configure(scrollregion=(x1, y1, x2, y2))
 
     def changebtnstate(self, *args):
         try:
@@ -204,6 +212,7 @@ class DetailsPopup(Toplevel):
         super().__init__(master, highlightbackground="gray20", **kwargs)
         # self.overrideredirect(True)
         self.root = master
+        self.details_len = len(details)
 
         self.wm_title(title)
         self.geometry(f"300x300+{self.root.winfo_x() + 2}+{self.root.winfo_y() + 514}")
@@ -211,9 +220,6 @@ class DetailsPopup(Toplevel):
         self.update()
         self.wm_transient(self.root)  # always stay on top of root
         self.configure(bg="white")
-
-        # the following are not scrollable:
-        # path_area, preset area
 
         # create a canvas and a vertical scrollbar for scrolling it
         self.vscrollbar = Scrollbar(self, orient="vertical")
@@ -247,8 +253,10 @@ class DetailsPopup(Toplevel):
 
         # add details
         for k, v in details.items():
-            det = Detail(self.interior, k.upper(), v, bg="white")
-            det.pack(fill="x", padx=3)
+            if v:
+                # create detail widget
+                det = Detail(self.interior, k.upper(), v, bg="white")
+                det.pack(fill="x", padx=3)
 
         # create thumbnail
         self.fetch_thumbnail(url)
@@ -260,10 +268,14 @@ class DetailsPopup(Toplevel):
         self.canvas.xview_moveto(0)
         self.canvas.yview_moveto(0)
 
-    def set_scrollregion(self, event=None):
+    def set_scrollregion(self):
         """ set the scroll region of the canvas"""
-        x1, y1, x2, y2 = self.canvas.bbox("all")
-        y2 += 100
+        self.canvas.update()
+        try:
+            x1, y1, x2, y2 = self.canvas.bbox("all")
+        except Exception:
+            x1, y1, x2, y2 = 0, 0, 600, (self.details_len * 25)
+        y2 += 25
         self.canvas.configure(scrollregion=(x1, y1, x2, y2))
 
     def fetch_thumbnail(self, url):
@@ -282,7 +294,7 @@ class DetailsPopup(Toplevel):
             timage = ImageTk.PhotoImage(image=im)
             # display
             self.thumbnail_label.configure(image=timage, bg="black")
-            self.thumbnail_label.image = timage  # took hours to figure out this important
+            self.thumbnail_label.image = timage  # took hours to figure out this
 
     def on_close(self):
         """ window close """

@@ -14,7 +14,7 @@ from YT.YTdownload import (
     get_video_streams,
     get_audio_streams,
     get_url_details,
-    get_best_audio,
+    get_play_stream,
     Downloader,
 )
 from core import (
@@ -88,6 +88,7 @@ EXIFTOOL_PATH = os.path.join(r_path("exiftool", base_dir=BASE_DIR), "exiftool.ex
 
 def handle_yt_errors(error) -> str:
     """ return a friendly string for error """
+    print(error)
 
     return "An error has occured..."
 
@@ -290,7 +291,8 @@ class Player(Options):
         sinfo = cache.get_stream(url)
         if not sinfo:
             sinfo = get_sanitizedinfo(url)
-            cache.cache_stream(url, sinfo)
+            if sinfo:
+                cache.cache_stream(url, sinfo)
         return sinfo
 
     def file_fromlistbox(self, index: int) -> str:
@@ -428,26 +430,35 @@ class Player(Options):
                     # this function is threaded,
                     # query_str is needed; unlike _handle_stream_tab's search
                     if is_url(search_string):
+                        self.searchlabel.configure(text="Extracting url...")
+
                         sinfo = self.get_sinfo(search_string)
 
                         title = get_url_details(sinfo, only="title")
-                        # update, placed last
-                        self._title_link[title] = search_string
-                        # update gui
-                        self._handle_stream_tab()  # blocking
-                        try:
-                            # get index using title after updating gui
-                            index = self.listview.get(0, "end").index(title)
-                        except ValueError:
-                            index = -1
-                        self.listview_select(index)
+                        if title:  # is not None:
+                            # update, placed last if not in _title_link
+                            self._title_link[title] = search_string
+                            # update gui
+                            self._handle_stream_tab()  # blocking
+                            try:
+                                # get index using title after updating gui
+                                index = self.listview.get(0, "end").index(title)
+                            except ValueError:
+                                index = -1
+                            self.listview_select(index)
+                        else:
+                            # no title is found, sinfo is empty
+                            self.status_bar.configure(text="Could not extract url...")
                     else:  # else is search str
                         self.search_str = search_string  # avoid saving link as last search
                         self._title_link = self.video_search.search(search_string)
                         # update listview window in streams tab
                         self.thread_updating_streams()
                         self.stream_index = -1
-                    self.searchlabel.configure(text="Search online:")
+                    if self.tab_num:
+                        self.searchlabel.configure(text="Search online:")
+                    else:
+                        self.searchlabel.configure(text="Search:")
             else:
                 # local files tab
                 self.collected = []
@@ -537,10 +548,13 @@ class Player(Options):
     def _url_metadata(self, url: str, title: str):
         """ popup url details """
         try:
-            sinfo = self.get_sinfo(url)
+            sinfo = self.get_sinfo(url)  # https://www.xvideos.com/video68108267/irresistible_pussy
 
-            details = get_url_details(sinfo)  # dict for display
-            DetailsPopup(self._root, title, details, bg="white")
+            if sinfo:
+                details = get_url_details(sinfo)  # dict for display
+                DetailsPopup(self._root, title, details, bg="white")
+            else:
+                self.status_bar.configure(text="Could not fetch metadata...")
         except Exception:
             pass
         self.status_bar.configure(text="")
@@ -574,7 +588,7 @@ class Player(Options):
 
     def _delete_listitem(self):
         """
-            Listbox's Remove from List
+            Listbox's Remove from Playlist
         """
 
         for i in reversed(self.listbox.curselection()):
@@ -821,19 +835,22 @@ class Player(Options):
 
         try:
             sinfo = self.get_sinfo(link)
+            if sinfo:
 
-            self.audio_streams = tuple(get_audio_streams(sinfo))
-            for_display = [f"{i}.    {s.p}    {s.filesize}" for i, s in enumerate(self.audio_streams, start=1)]
-            self.status_bar.configure(text="")
-            if for_display:
-                quality = getquality(
-                    self._root, title,
-                    "Audio", for_display,
-                    self.download_location
-                )
-                self.prepare_download(quality)
+                self.audio_streams = tuple(get_audio_streams(sinfo))
+                for_display = [f"{i}.    {s.p}    {s.p_size}" for i, s in enumerate(self.audio_streams, start=1)]
+                self.status_bar.configure(text="")
+                if for_display:
+                    quality = getquality(
+                        self._root, title,
+                        "Audio", for_display,
+                        self.download_location
+                    )
+                    self.prepare_download(quality)
+                else:
+                    self.status_bar.configure(text="Some data is missing: no audio streams...")
             else:
-                self.status_bar.configure(text="Some data is missing: maybe a live stream...")
+                self.status_bar.configure(text="Could not fetch audio info...")
 
         except Exception as e:
             error_msg = f"Error: {handle_yt_errors(e)}"
@@ -853,17 +870,20 @@ class Player(Options):
 
         try:
             sinfo = self.get_sinfo(link)
+            if sinfo:
 
-            self.video_streams = tuple(get_video_streams(sinfo))
-            for_display = [f"{i}.    {s.p}    {s.filesize}" for i, s in enumerate(self.video_streams, start=1)]
-            self.status_bar.configure(text="")
+                self.video_streams = tuple(get_video_streams(sinfo))
+                for_display = [f"{i}.    {s.p}    {s.p_size}" for i, s in enumerate(self.video_streams, start=1)]
+                self.status_bar.configure(text="")
 
-            if for_display:
-                quality = getquality(self._root, title,
-                                     "Video", for_display, self.download_location)
-                self.prepare_download(quality)
+                if for_display:
+                    quality = getquality(self._root, title,
+                                         "Video", for_display, self.download_location)
+                    self.prepare_download(quality)
+                else:
+                    self.status_bar.configure(text="Some data is missing: no video streams...")
             else:
-                self.status_bar.configure(text="Some data is missing: maybe a live stream...")
+                self.status_bar.configure(text="Could not fetch video info...")
 
         except Exception as e:
             error_msg = f"Error: {handle_yt_errors(e)}"
@@ -880,7 +900,7 @@ class Player(Options):
             try:
                 q, self.download_location, f_preset = q
                 index, quality = q.split(".    ")
-                index = int(index)
+                index = int(index) - 1  # minus 1 because enumerate starts from 1
 
                 if "kbps" in quality:
                     aud_strm = self.audio_streams[index]
@@ -901,7 +921,8 @@ class Player(Options):
                     # self.video_downloader.download(self.download_location, prefix="Video_")
                     self.download_instances.append(self.video_downloader)
                 self.status_bar.configure(text="Added to download queue...")
-            except Exception:
+            except Exception as e:
+                print(e)
                 self.status_bar.configure(text="Could not start download...")
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -1351,16 +1372,19 @@ class Player(Options):
                     title = self.listview.selection_get()
                     link = self._title_link.get(title)
                     sinfo = self.get_sinfo(link)
+                    if sinfo:
 
-                    stream = get_best_audio(sinfo)
-                    self._song = stream.url
+                        stream = get_play_stream(sinfo)
+                        self._song = stream.url
 
-                    # length in seconds
-                    self.duration = stream.length
-                    self._title_txt = self._convert(title)
-                    self.progress_bar["to"] = int(self.duration)
-                    self.isStreaming = 1
-                    change = 1
+                        # length in seconds
+                        self.duration = stream.length
+                        self._title_txt = self._convert(title)
+                        self.progress_bar["to"] = int(self.duration)
+                        self.isStreaming = 1
+                        change = 1
+                    else:
+                        self.status_bar.configure(text="Could not fetch audio...")
                 else:
                     self._title_link = None
                     self.thread_updating_streams()
@@ -1919,9 +1943,9 @@ class Player(Options):
         """ close the app """
         self.shutdown_cache()
         self._close_trecords()
-        self.threadpool.shutdown()
         self.shuffle_mixer.delete()
         self._root.destroy()
+        self.threadpool.shutdown(wait=False, cancel_futures=True)
         sys.exit(exit_code)
 
     def _kill(self):
@@ -2320,14 +2344,15 @@ Thread(target=close_prev, daemon=1).start()
 
 tk = Tk()
 
-p = Player(tk)
-tk.mainloop()
+# lazy_selector = Player(tk)
+# tk.mainloop()
 
-# try:
-#     p = Player(tk)
-#     tk.mainloop()
-# except Exception:
-#     tk.destroy()
+try:
+    lazy_selector = Player(tk)
+    tk.mainloop()
+except Exception:
+    lazy_selector._kill()
+    tk.destroy()
 
 sys.exit(1)
 # TODO

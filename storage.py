@@ -228,7 +228,7 @@ class DCache():
         self.cache_data["metadata"] = {}
 
     def close_cache(self):
-        """ close and delete file """
+        """ close and delete cache dir """
         try:
             self.cache_data.close()
             shutil.rmtree(self.cache_data.directory)
@@ -239,9 +239,8 @@ class DCache():
 class TrackRecords():
     """
     stores:
-    date accessed, date created, play counter
-    uses sqlitedict cos of its support for
-    different tables in one file
+    play counter
+    uses diskcache for its speed
     """
 
     def __init__(self, track_records_dir: str, folder_path: str):
@@ -277,24 +276,18 @@ class TrackRecords():
         negative play count
         (in that order)
         """
-        record = self.records.get(name)
-        if record:
-            try:
-                a_time = float(record[0])
-                c_time = float(record[1])
-                counter = int(record[2])
-                return (a_time, c_time, -counter)
-            except Exception:
-                pass
-        return (0, 0, 0)
+        filename = os.path.join(self.folder_path, name)
+        a_time, c_time = get_actime(filename)  # get a_time, c_time from file
+        counter = self.records.get(name, default=0)
 
-    def _freq(self, filename: str) -> int:
+        return (a_time, c_time, -counter)
+
+    def _freq(self, name: str) -> int:
         """ get the play count, specifically """
-        name = os.path.basename(filename)
 
-        record = self.records.get(name, default=0)
-        if record:
-            return int(record[2])
+        counter = self.records.get(name, default=0)
+        if counter:
+            return int(counter)
         return 0
 
     def log(self, filename: str):
@@ -302,10 +295,9 @@ class TrackRecords():
         create new entry for filename
         """
         name = os.path.basename(filename)
-        a_time, c_time = get_actime(filename)
-        counter = self._freq(filename) + 1
+        counter = self._freq(name) + 1
 
-        self.records[name] = (a_time, c_time, counter)
+        self.records[name] = counter  # just log counter
 
     def _clean(self):
         """ remove tracks-not-found records """
@@ -318,4 +310,5 @@ class TrackRecords():
                     self.records.delete(k)
 
     def close(self):
+        """ close track records """
         self.records.close()

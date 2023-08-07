@@ -9,9 +9,8 @@ from YT.utils import (
 from core import BASE_DIR
 
 
-# setting environ vars can be commented out
-# so that python-vlc can use path in which vlc app is installed
-# uncomment to use the sys variables
+# this section can be commented out so that python-vlc can use path in which vlc app is installed
+# uncomment to use the environment variables
 # VLC_DIR = r_path("mixer", base_dir=BASE_DIR)
 # DLL_DIR = os.path.join(VLC_DIR, "libvlc.dll")
 # """ set environment variables for vlc to use """
