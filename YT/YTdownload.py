@@ -1,27 +1,24 @@
 """ youtube download functionalities """
 
 from ffmpeg_progress_yield import FfmpegProgress
-import os
 from collections import namedtuple
 from YT.ffmpeg import (
     ffmpeg_audio_download,
     ffmpeg_dash_download,
     ffmpeg_video_download,
+    FFPROBE_PATH,
 )
-import re
-import yt_dlp
 from datetime import (
     datetime,
-)
-import humanize
-from YT.utils import (
-    prevent_sleep,
-    release_sleep,
 )
 from subprocess import (
     STARTUPINFO,
     STARTF_USESHOWWINDOW,
 )
+import os
+import re
+import yt_dlp
+import humanize
 
 
 AudioStream = namedtuple(
@@ -33,6 +30,7 @@ AudioStream = namedtuple(
         "length",
         "p_size",
         "p",
+        "info",
     ),
 )
 
@@ -45,6 +43,7 @@ VideoStream = namedtuple(
         "length",
         "p_size",
         "p",
+        "info",
     ),
 )
 
@@ -170,6 +169,7 @@ def yt_audstream(item: dict, title, thumbnail_url, duration):
         duration,
         p_size,
         p,
+        item,
     )
 
 
@@ -232,6 +232,7 @@ def get_video_streams(sinfo: dict):
                 duration,
                 p_size,
                 p,
+                item,
             )
 
     except Exception as e:
@@ -256,7 +257,7 @@ class Downloader():
         self.dst = dst
         self.stream = stream
         self.done = False
-        self.disp_title = f"{self.stream.title[:17]}...{self.stream.title[-3:]}"
+        self.disp_title = f"{self.stream.title[:15]}...{self.stream.title[-3:]}"
         self.disp_size = self.stream.p_size
 
     def ffmpeg_process(self, cmd):
@@ -264,8 +265,9 @@ class Downloader():
         # create NOWINDOW subprocess flags
         s = STARTUPINFO()
         s.dwFlags |= STARTF_USESHOWWINDOW
+        # print(cmd)
 
-        self.process = FfmpegProgress(cmd)
+        self.process = FfmpegProgress(cmd, ffprobe_path=FFPROBE_PATH)
         for progress in self.process.run_command_with_progress(popen_kwargs={'startupinfo': s}):
             yield progress
 
@@ -290,12 +292,11 @@ class Downloader():
 
         self.display_label.config(text=f"Downloaded to '{spd}'...")
 
-    def video_download(self, dst_path, prefix=None, preset=None):
+    def video_download(self, dst_path, prefix=None, preset=None, sinfo=None):
         """ video download function """
         self.display_label.config(text="Downloadig Video...")
         filename = os.path.join(dst_path, f"{self.stream.title}.mp4")
-        # prevent sys sleep
-        prevent_sleep()
+
         try:
             if not self.stream.audio:
                 downloader = ffmpeg_video_download(
@@ -303,6 +304,8 @@ class Downloader():
                     filename,
                     preset=preset,
                     func=self.ffmpeg_process,
+                    stream=self.stream.info,
+                    info_dict=sinfo,
                 )
             else:
                 downloader = ffmpeg_dash_download(
@@ -311,6 +314,8 @@ class Downloader():
                     filename,
                     preset=preset,
                     func=self.ffmpeg_process,
+                    stream=self.stream.info,
+                    info_dict=sinfo,
                 )
             for progress in downloader:
                 self.on_progress(progress, prefix)  # update progress
@@ -319,15 +324,12 @@ class Downloader():
         except Exception:
             self.display_label.config(text="An error occured while downloading...")
         self.done = True
-        # release sleep lock
-        release_sleep()
 
-    def audio_download(self, dst_path, prefix=None, preset=None):
+    def audio_download(self, dst_path, prefix=None, preset=None, sinfo=None):
         """ audio download function """
         self.display_label.config(text="Downloadig Audio...")
         filename = os.path.join(dst_path, f"{self.stream.title}.mp3")
-        # prevent sys sleep
-        prevent_sleep()
+
         try:
             downloader = ffmpeg_audio_download(
                 self.stream.url,
@@ -335,6 +337,8 @@ class Downloader():
                 filename,
                 preset=preset,
                 func=self.ffmpeg_process,
+                stream=self.stream.info,
+                info_dict=sinfo,
             )
             for progress in downloader:
                 self.on_progress(progress, prefix)  # update progress
@@ -343,8 +347,6 @@ class Downloader():
             print(e)
             self.display_label.config(text="An error occured while downloading...")
         self.done = True
-        # release sleep lock
-        release_sleep()
 
     def cancel_download(self):
         if self.process:

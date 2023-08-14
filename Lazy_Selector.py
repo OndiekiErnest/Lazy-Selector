@@ -846,7 +846,7 @@ class Player(Options):
                         "Audio", for_display,
                         self.download_location
                     )
-                    self.prepare_download(quality)
+                    self.prepare_download(quality, info_dict=sinfo)
                 else:
                     self.status_bar.configure(text="Some data is missing: no audio streams...")
             else:
@@ -879,7 +879,7 @@ class Player(Options):
                 if for_display:
                     quality = getquality(self._root, title,
                                          "Video", for_display, self.download_location)
-                    self.prepare_download(quality)
+                    self.prepare_download(quality, info_dict=sinfo)
                 else:
                     self.status_bar.configure(text="Some data is missing: no video streams...")
             else:
@@ -894,7 +894,7 @@ class Player(Options):
         video_download_thread = self._set_thread(self._download_video, "video_info")
         video_download_thread.start()
 
-    def prepare_download(self, q):
+    def prepare_download(self, q, info_dict=None):
 
         if q:
             try:
@@ -907,7 +907,8 @@ class Player(Options):
                     self.audio_downloader = Downloader(aud_strm, self.status_bar, self.download_location)
                     self.threadpool.submit(
                         self.audio_downloader.audio_download,
-                        self.download_location, prefix="Audio", preset=f_preset
+                        self.download_location, prefix="Audio",
+                        preset=f_preset, sinfo=info_dict,
                     )
                     # self.audio_downloader.download(self.download_location)
                     self.download_instances.append(self.audio_downloader)
@@ -916,7 +917,8 @@ class Player(Options):
                     self.video_downloader = Downloader(vid_strm, self.status_bar, self.download_location)
                     self.threadpool.submit(
                         self.video_downloader.video_download,
-                        self.download_location, prefix="Video", preset=f_preset
+                        self.download_location, prefix="Video",
+                        preset=f_preset, sinfo=info_dict,
                     )
                     # self.video_downloader.download(self.download_location, prefix="Video_")
                     self.download_instances.append(self.video_downloader)
@@ -1239,11 +1241,11 @@ class Player(Options):
                 # when done searching and updating listbox
                 # if reload_button was previously packed due to no connection
                 try:
-                    self.reload_button.pack_forget()
+                    self.reload_button.destroy()
                 # if there's been internet connection from startup; no reload_button
                 except AttributeError:
                     pass
-                self.notification.pack_forget()
+                self.notification.destroy()
                 # map the listbox and its scrollbar
                 self.listview.pack(side="left", padx=3)
                 self.stream_scrollbar.pack(side="left", fill="y")
