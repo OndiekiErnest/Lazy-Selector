@@ -18,13 +18,19 @@ from core import (
 
 
 OPTS_KEYS = {"theme", "window", "folders", "searches"}
+OPTS_VALUES = {
+    "theme": {"bg", "fg"},
+    "window": {"position", },
+    "folders": {"last", },
+    "searches": {"last", "all"}
+}
+
 DEFAULT_SETTINGS = {
     "theme": {
         "bg": "gray28",
         "fg": "gray97"
     },
     "window": {
-        "donotshow": "0",
         "position": "5+5"
     },
     "folders": {
@@ -51,9 +57,7 @@ def _validate_win(parent: str, key: str, value: str):
         if found:  # return; else return default
             return found.string  # return found.str cos it matches regex
     else:
-        valid_opts = {
-            "donotshow": {"1", "0"},
-        }
+        valid_opts = {}
         opt = valid_opts.get(key)
         if opt:  # if it's validated
             if value in opt:  # check membership
@@ -80,6 +84,34 @@ def _validate_theme(parent: str, key: str, value: str):
     return DEFAULT_SETTINGS[parent][key]
 
 
+def _validate_folder(parent: str, key: str, value: str):
+    """ return path if folder """
+    if os.path.isdir(value):
+        return value
+
+    return DEFAULT_SETTINGS[parent][key]
+
+
+def _clean_inputdata(data: dict):
+    """ return a dict with keys as predefined """
+
+    new_data = DEFAULT_SETTINGS.copy()
+    for key, value in data.items():
+        if (key in OPTS_KEYS):
+            for k, v in value.items():
+                if (k in OPTS_VALUES[key]):
+                    new_data[key][k] = v
+    return new_data
+
+
+def _dsorted(data: dict):
+    """ return values of sorted dict """
+    rtv = []
+    for k, v in sorted(data.items()):
+        rtv.append(v)
+    return rtv
+
+
 def get_actime(filename: str):
     """ get access and created time of file """
     stat = os.stat(filename)
@@ -92,11 +124,10 @@ VALIDATORS = {
         "fg": _validate_theme
     },
     "window": {
-        "donotshow": _validate_win,
         "position": _validate_win
     },
     "folders": {
-        "last": None
+        "last": _validate_folder
     },
     "searches": {
         "last": None,
@@ -115,13 +146,12 @@ class AppConfigs():
 
     def _validate(self, data: dict):
         """ make sure the values are valid """
-        data = {k: v for k, v in data.items() if (k in OPTS_KEYS)}  # clean data
-        data_values = data.values()
+        data = _clean_inputdata(data)  # simple clean data
 
-        for key, values, funcs in zip(OPTS_KEYS, data_values, VALIDATORS.values()):
-            for value, v_func in zip(values.items(), funcs.items()):
-                _, inner_v = value  # discard v_key here cos it can be changed by user
-                v_key, func = v_func  # use v_key from VALIDATORS
+        for key, values, funcs in zip(sorted(OPTS_KEYS), _dsorted(data), _dsorted(VALIDATORS)):
+            for keyvalue, k_func in zip(sorted(values.items()), sorted(funcs.items())):
+                _, inner_v = keyvalue
+                v_key, func = k_func  # use v_key from VALIDATORS
 
                 if func:
                     valid_v = func(key, v_key, inner_v)
@@ -200,11 +230,15 @@ class DCache():
 
     def get_stream(self, url: str):
         """ return cached value of sinfo dict or None """
-        return self.cache_data["streams"].get(url)
+        value = self.cache_data["streams"].get(url)
+        self.cache_data.close()
+        return value
 
     def get_metadata(self, name: str):
         """ get metadata dict or None used in Properties """
-        return self.cache_data["metadata"].get(name)
+        value = self.cache_data["metadata"].get(name)
+        self.cache_data.close()
+        return value
 
     def cache_stream(self, url: str, sinfo):
         """ cache sinfo dict """
@@ -212,6 +246,7 @@ class DCache():
         streams.update({url: sinfo})
 
         self.cache_data["streams"] = streams
+        self.cache_data.close()
 
     def cache_metadata(self, name: str, metadata: dict):
         """ cache local file metadata used in Properties """
@@ -219,6 +254,7 @@ class DCache():
         data.update({name: metadata})
 
         self.cache_data["metadata"] = data
+        self.cache_data.close()
 
     def clear_cache(self):
         """ clear all data """
@@ -226,11 +262,14 @@ class DCache():
         # create keys
         self.cache_data["streams"] = {}
         self.cache_data["metadata"] = {}
+        self.cache_data.close()
 
     def close_cache(self):
         """ close and delete cache dir """
+
+        self.cache_data.close()
+
         try:
-            self.cache_data.close()
             shutil.rmtree(self.cache_data.directory)
         except Exception:
             pass
@@ -243,25 +282,25 @@ class TrackRecords():
     uses diskcache for its speed
     """
 
-    def __init__(self, track_records_dir: str, folder_path: str):
-        self.track_records_dir = track_records_dir  # used for keeping records
-        self.folder_path = folder_path  # used for cleaning and getting folder name
+    def __init__(self, save_to_dir: str, tracks_folder: str):
+        self.save_to_dir = save_to_dir  # used for keeping records
+        self.tracks_folder = tracks_folder  # used for cleaning and getting folder name
 
-        # if folders in defferent paths share the same name
+        # if folders in different paths share the same name
         # eliminate the likelihood of cleaning contents of the other
-        paths = [name for name in re.split(f"[\\\\:/]", folder_path) if name]  # remove empty str
+        paths = [name for name in re.split(f"[\\\\:/]", tracks_folder) if name]  # remove empty str
         if len(paths) > 1:
             folder_name = f"{'_'.join(paths[-2].split())}_{''.join(paths[-1].split())}"
         else:
             folder_name = '_'.join(f"{''.join(paths)} disk".split())
 
-        cwd = os.path.join(track_records_dir, folder_name)  # current working dir for track records
+        cwd = os.path.join(save_to_dir, folder_name)  # current working dir for track records
 
         self.records = Cache(
             directory=cwd,
         )
         # clean
-        self._clean()
+        # self._clean()  # slow; maybe thread it
         # try to remove old support
         old_records = os.path.join(BASE_DIR, "data", "log.cfg")
         if os.path.exists(old_records):
@@ -276,7 +315,7 @@ class TrackRecords():
         negative play count
         (in that order)
         """
-        filename = os.path.join(self.folder_path, name)
+        filename = os.path.join(self.tracks_folder, name)
         a_time, c_time = get_actime(filename)  # get a_time, c_time from file
         counter = self.records.get(name, default=0)
 
@@ -301,7 +340,7 @@ class TrackRecords():
 
     def _clean(self):
         """ remove tracks-not-found records """
-        folder = self.folder_path
+        folder = self.tracks_folder
         keys = self.records.iterkeys()
         with self.records.transact():
             for k in keys:
