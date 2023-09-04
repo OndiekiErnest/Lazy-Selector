@@ -97,14 +97,28 @@ def to_mp4(
     """ video to mp4 """
     cmd_runner = cmd_runner or list_cmd
 
-    name, ext = os.path.splitext(video)
-    if ext != ".mp4":
+    if os.path.isfile(video):
+        name, ext = os.path.splitext(video)
+        if ext != ".mp4":
+            cmd = [
+                FFMPEG_PATH,
+                "-y",
+                "-progress", "pipe:1",  # write to stdout
+                "-i", video,
+                "-c:v", "copy",
+                "-preset", preset or "medium",
+                output,
+            ]
+
+            cmd_runner(cmd)
+    else:
+        # link
         cmd = [
             FFMPEG_PATH,
             "-y",
             "-progress", "pipe:1",  # write to stdout
             "-i", video,
-            "-c:v", "copy",
+            "-codec", "copy",
             "-preset", preset or "medium",
             output,
         ]

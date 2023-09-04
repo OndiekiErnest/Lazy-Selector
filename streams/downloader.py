@@ -150,7 +150,8 @@ class PostConvertor():
         def delete_src(*args):  # receives a Future obj
             """ delete files """
             for file in files:
-                safe_delete(file)
+                if os.path.isfile(file):
+                    safe_delete(file)
             # reduce active_convs number
             with self.thread_lock:
                 self.active_convs -= 1
@@ -441,6 +442,7 @@ class ADownloader(BaseDownloader):
                     break
                 # additional sleep
                 sleep(0.7)
+        self.prog_thread_running = False
         self.file_convertor.conv_error = 0
         self.errored_num = 0
         self.prog_monitor_running = False
@@ -476,7 +478,7 @@ class ADownloader(BaseDownloader):
 
         if stream.audio:
             aud_ext = stream.audio.info.get("audio_ext")
-            audfilename = f"_{stream.title}_.{aud_ext}"
+            audfilename = f"audio_{stream.title}_.{aud_ext}"
 
             audopts = {
                 "dir": dst_path,
@@ -505,17 +507,27 @@ class ADownloader(BaseDownloader):
             }
 
         else:
-            vid_ext = stream.info.get("video_ext")
-            vid_d_obj = self.aria_client.add(stream.url, vidopts)[0]
-            # keep record
-            self.active_downloads[vid_d_obj.gid] = {
-                "video": vid_d_obj.gid,
-                "audio": None,
-                "ext": vid_ext,
-                "final_ext": "mp4",
-                "thumbnail": None,
-                "ffmpeg_preset": kwargs.get("preset"),
-            }
+            d_url = stream.url
+            if d_url.endswith(".m3u8") or (vid_ext == "mp4"):
+                # ffmpeg -i "http://example.com/chunklist.m3u8" -codec copy file.mp4
+                vidfilename = f"{stream.title}.{vid_ext}"
+                output = os.path.join(dst_path, vidfilename)
+                self.file_convertor.enqueue_video(
+                    d_url,
+                    output,
+                    preset=kwargs.get("preset"),
+                )
+            else:
+                vid_d_obj = self.aria_client.add(d_url, vidopts)[0]
+                # keep record
+                self.active_downloads[vid_d_obj.gid] = {
+                    "video": vid_d_obj.gid,
+                    "audio": None,
+                    "ext": vid_ext,
+                    "final_ext": "mp4",
+                    "thumbnail": None,
+                    "ffmpeg_preset": kwargs.get("preset"),
+                }
         # start monitor loop if not started
         self.start_monitoring_progress()
 
