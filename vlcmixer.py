@@ -8,11 +8,11 @@ from core import BASE_DIR
 
 # this section can be commented out so that python-vlc can use path in which vlc app is installed
 # uncomment to use the environment variables
-VLC_DIR = r_path("mixer", base_dir=BASE_DIR)
-DLL_DIR = os.path.join(VLC_DIR, "libvlc.dll")
-""" set environment variables for vlc to use """
-os.environ.setdefault("PYTHON_VLC_MODULE_PATH", VLC_DIR)
-os.environ.setdefault("PYTHON_VLC_LIB_PATH", DLL_DIR)
+# VLC_DIR = r_path("mixer", base_dir=BASE_DIR)
+# DLL_DIR = os.path.join(VLC_DIR, "libvlc.dll")
+# """ set environment variables for vlc to use """
+# os.environ.setdefault("PYTHON_VLC_MODULE_PATH", VLC_DIR)
+# os.environ.setdefault("PYTHON_VLC_LIB_PATH", DLL_DIR)
 
 from vlc import Instance, PlaybackMode, MediaParsedStatus
 
@@ -132,7 +132,7 @@ class VLC():
     @loop.setter
     def loop(self, value: bool):
         """
-            set playback mode
+            we use plylist so we can use set playback mode
         """
         if isinstance(value, bool) and self.playlist is not None:
             self._repeat = value

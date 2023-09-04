@@ -36,9 +36,6 @@ from socket import gethostname, gethostbyname
 from multiprocessing import (
     Manager, freeze_support
 )
-from multiprocessing.shared_memory import (
-    ShareableList,
-)
 from multiprocessing.managers import (
     SyncManager,
 )
@@ -257,9 +254,10 @@ class Player(Options):
         self.about_menu.add_separator()
         self.about_menu.add_command(label="About Lazy Selector", command=self._about)
 
-        # this window will not show but will take less time to show next time
+        file_passed = self._refresher()
         self._init()
-        self._refresher()
+        if file_passed:
+            self.on_eos()
 
         rem_battery = battery.get_state()["percentage"]
         if (rem_battery < 41) and (rem_battery > 16):
@@ -294,7 +292,7 @@ class Player(Options):
         """ get and update downloader progress from downloader """
 
         progress_txt = self.shared_dict.pop("progress", None)
-        if progress_txt:
+        if progress_txt:  # not None or empty str
             try:
                 self.status_bar.configure(text=progress_txt)
             except Exception:  # when statusbar is destroyed
@@ -494,7 +492,7 @@ class Player(Options):
         if len(search_string) > 1:
             if len(self._search_history) >= 61:  # keep upto 60 searches
                 self._search_history.pop()
-            self._search_history.add(search_string)
+
             if self.tab_num:
                 # online
                 if not self.isOffline:
@@ -523,6 +521,7 @@ class Player(Options):
                             # no title is found, sinfo is empty
                             self.status_bar.configure(text="Could not extract url...")
                     else:  # else is search str
+                        self._search_history.add(search_string)  # save only online searches
                         self.search_str = search_string  # avoid saving link as last search
                         self._title_link = self.video_search.search(search_string)
                         # update listview window in streams tab
@@ -712,7 +711,7 @@ class Player(Options):
 
                     self.listbox.delete(i)
                     # delete file
-                    filename = os.path.join(os.path.normpath(self._songspath), item)
+                    filename = os.path.normpath(self.valid_path(item))
                     try:
                         # go to next before deleting to avoid 'file is open by another program' error
                         if filename == self._song:
@@ -997,7 +996,7 @@ class Player(Options):
         if self.tab_num:
             # streams tab
             self.searchlabel.configure(text="Search online:")
-            ToolTip(self.searchbar, "Search online\nPress 'enter' to search")
+            ToolTip(self.searchbar, "Search by text\nOr paste a link here\nPress 'enter' to search")
             self._root.geometry(f"318x{self._screen_height}+" + f"{self._root.winfo_x()}+{5}")
             # direct focus to searchbar
             # self.searchbar.focus_set()
@@ -1063,6 +1062,10 @@ class Player(Options):
         # self.progress_bar.place(x=54, y=98)
         self.check_theme_mode()
         self._update_theme()
+        # defaults
+        self.current_time_label.configure(text=self.ftime)
+        self._title.configure(text=self._title_txt)
+        self._play_btn.configure(image=self.play_btn_img)
         # get online streams after the window has loaded
 
 # ------------------------------------------------------------------------------------------------------------------------------
@@ -1501,8 +1504,10 @@ class Player(Options):
         self.collection_index = -1
         all_files = []
         if len(PASSED_FILES) > 0:
-            self._all_files = [os.path.basename(i) for i in PASSED_FILES if i.endswith(self._supported_extensions)]
-            self._songspath = os.path.dirname(PASSED_FILES[0])
+
+            self._all_files = self._parse_argfiles(PASSED_FILES)
+            f = PASSED_FILES[0]
+            self._songspath = f if os.path.isdir(f) else os.path.dirname(f)
             self.download_location = self._songspath
             PASSED_FILES.clear()
             t = os.path.basename(self._songspath) if os.path.basename(self._songspath) else "Disk"
@@ -1510,8 +1515,7 @@ class Player(Options):
 
             # track records
             self.track_records = TrackRecords(TRACK_RDIR, self._songspath)
-            self.on_eos()
-            return
+            return True
 
         else:
 
@@ -1594,17 +1598,20 @@ class Player(Options):
             self._uptime = 0
             self._progress_variable.set(self._uptime)
             self.ftime = "00:00"
-            self.current_time_label.configure(text=self.ftime)
             self._title_txt = ""
-            self._title.configure(text=self._title_txt)
             self.play_btn_img = self.play_img
-            self._play_btn.configure(image=self.play_btn_img)
             self._play_btn_command = self._unpause
             self._play_next_command = None
             self._play_prev_command = None
-            self._play_btn["command"] = self._play_btn_command
-            self._previous_btn["command"] = self._play_prev_command
-            self._next_btn["command"] = self._play_next_command
+            try:  # executes when player restarted after ending
+                self._play_btn["command"] = self._play_btn_command
+                self._previous_btn["command"] = self._play_prev_command
+                self._next_btn["command"] = self._play_next_command
+                self.current_time_label.configure(text=self.ftime)
+                self._title.configure(text=self._title_txt)
+                self._play_btn.configure(image=self.play_btn_img)
+            except AttributeError:  # on startup; throws an error
+                pass
         self._open_folder = 0
 
 # ------------------------------------------------------------------------------------------------------------------------------
@@ -1665,28 +1672,30 @@ class Player(Options):
                                         initialdir=self.FILENAMES_INITIALDIR)
         if files_:
             self.FILENAMES_INITIALDIR = os.path.dirname(files_[0])
-            self.load_songsto_playlist(files_)
+            p_files = []
+            for loaded_file in files_:
+                if loaded_file.endswith(self._supported_extensions):
+                    p_files.append(os.path.basename(loaded_file))
+                    self.ALT_DIRS.add(os.path.dirname(loaded_file))
+            self.load_songsto_playlist(p_files)
 
     def load_songsto_playlist(self, files: list):
         """ load songs to all_files and update alt_dirs """
 
-        for loaded_file in files:
-            if loaded_file.endswith(self._supported_extensions):
-                song = os.path.basename(loaded_file)
-                self.ALT_DIRS.add(os.path.dirname(loaded_file))
-                # remove duplicate song
-                try:
-                    index = self._all_files.index(song)
-                    self._all_files.remove(song)
-                    if self.listbox is not None:
-                        self.listbox.delete(index)
-                except ValueError:  # item not in list
-                    pass
+        for song in files:
+            # remove duplicate song
+            try:
+                index = self._all_files.index(song)
+                self._all_files.remove(song)
+                if self.listbox is not None:
+                    self.listbox.delete(index)
+            except ValueError:  # item not in list
+                pass
 
-                self._all_files.insert(self.index + 1, song)
-                if self.listbox is not None and (not self.collected):
-                    self.listbox.insert(self.index + 1, song)
-                    self._resize_listbox()
+            self._all_files.insert(self.index + 1, song)
+            if self.listbox is not None and (not self.collected):
+                self.listbox.insert(self.index + 1, song)
+                self._resize_listbox()
 
 # ------------------------------------------------------------------------------------------------------------------------------
 
@@ -2150,7 +2159,7 @@ class Player(Options):
             # attach to existing playlist queue
             playlist_queue = get_q(QUEUE_FILE)
             if playlist_queue:
-                self._move_to_songs(playlist_queue)
+                self._move_to_songs(playlist_queue)  # this is likely to block
         except Exception:
             pass
         rem_battery = battery.get_state()["percentage"]
@@ -2169,9 +2178,10 @@ class Player(Options):
                         self.stream_manager()
                 else:
                     try:
-                        if os.path.exists(self._song):
+                        f = os.path.join(self._songspath, os.path.basename(self._song))
+                        if os.path.exists(f):
                             # add 1 to play frequency
-                            self.track_records.log(self._song)
+                            self.track_records.log(f)
                     except AttributeError:
                         pass
                     self.on_eos()
@@ -2245,10 +2255,27 @@ class Player(Options):
         self._on_click()
         self.isStreaming = 1
 
-    def _move_to_songs(self, songs):
+    def _move_to_songs(self, args):
         """ add songs to all_songs and move to play them """
+        songs = self._parse_argfiles(args)
         self.load_songsto_playlist(songs)
         self.on_eos()
+
+    def _parse_argfiles(self, args: list[str]) -> list[str]:
+        """ parse args and return all files """
+        all_files = []
+        for arg in args:
+            if os.path.isdir(arg):
+                self.ALT_DIRS.add(arg)  # keep record of dirs
+                all_files.extend(
+                    (
+                        f for f in os.listdir(arg) if f.endswith(self._supported_extensions)
+                    )
+                )
+            elif os.path.isfile(arg):
+                self.ALT_DIRS.add(os.path.dirname(arg))
+                all_files.append(os.path.basename(arg))
+        return all_files
 
 
 PASSED_FILES = sys.argv[1:]
