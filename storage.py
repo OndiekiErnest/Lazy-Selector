@@ -106,10 +106,8 @@ def _clean_inputdata(data: dict):
 
 def _dsorted(data: dict):
     """ return values of sorted dict """
-    rtv = []
-    for k, v in sorted(data.items()):
-        rtv.append(v)
-    return rtv
+
+    return [v for k, v in sorted(data.items())]
 
 
 def get_actime(filename: str):
@@ -302,30 +300,29 @@ class TrackRecords():
         # clean
         # self._clean()  # slow; maybe thread it
         # try to remove old support
-        old_records = os.path.join(BASE_DIR, "data", "log.cfg")
-        if os.path.exists(old_records):
-            os.remove(old_records)
+        # old_records = os.path.join(BASE_DIR, "data", "log.cfg")
+        # if os.path.exists(old_records):
+        #     os.remove(old_records)
 
     def sortbykey(self, name: str) -> tuple:
         """
         get frequency of filename
         return:
+        play count
         last access time,
-        created time,
-        negative play count
+        negative created time
         (in that order)
         """
         filename = os.path.join(self.tracks_folder, name)
         a_time, c_time = get_actime(filename)  # get a_time, c_time from file
         counter = self.records.get(name, default=0)
 
-        return (a_time, c_time, -counter)
+        return (counter, a_time, -c_time)
 
     def _freq(self, name: str) -> int:
         """ get the play count, specifically """
 
-        counter = self.records.get(name, default=0)
-        if counter:
+        if counter := self.records.get(name, default=0):
             return int(counter)
         return 0
 

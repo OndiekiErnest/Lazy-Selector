@@ -45,7 +45,7 @@ import sys
 import os
 import orjson
 from send2trash import send2trash
-from random import shuffle
+# from random import shuffle
 import images
 from time import sleep, time
 from datetime import timedelta
@@ -645,7 +645,7 @@ class Player(Options):
         self.index = -1
         all_files = os.listdir(self._songspath)
         self._all_files = [i for i in all_files if i.endswith(self._supported_extensions)]
-        shuffle(self._all_files)
+        # shuffle(self._all_files)
         with self.track_records.records.transact():  # context manager to lock records
             self._all_files.sort(key=self.track_records.sortbykey)
         if self.listbox is not None:
@@ -1579,7 +1579,7 @@ class Player(Options):
             t = os.path.basename(self._songspath) if len(os.path.basename(self._songspath)) != 0 else "Disk"
             self._root.title(f"{t} - Lazy Selector")
 
-            shuffle(self._all_files)
+            # shuffle(self._all_files)
             with self.track_records.records.transact():  # contxt manager to lock records
                 self._all_files.sort(key=self.track_records.sortbykey)
 
@@ -2285,10 +2285,15 @@ def main_run():
     """ main app run """
     for line in os.popen("tasklist").readlines():
         if line.startswith("Lazy_Selector.exe"):
-            if line.split()[1] != str(CURRENT_PID):
+            running_pid = line.split()[1]
+            if running_pid != str(CURRENT_PID):
                 # open shared mem; add song to queue
-                set_q(QUEUE_FILE, PASSED_FILES)
-                break
+                try:
+                    set_q(QUEUE_FILE, PASSED_FILES)
+                    break
+                except FileNotFoundError:
+                    os.popen(f"taskkill /F /PID {running_pid}")
+
     else:
         # create shared mem; wait for song
         with Manager() as shared_manager:
