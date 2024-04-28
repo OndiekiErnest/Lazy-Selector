@@ -33,9 +33,7 @@ from core import (
 )
 from concurrent.futures import ThreadPoolExecutor
 from socket import gethostname, gethostbyname
-from multiprocessing import (
-    Manager, freeze_support
-)
+from multiprocessing import Manager, freeze_support, Lock
 from multiprocessing.managers import (
     SyncManager,
 )
@@ -91,6 +89,7 @@ QUEUE_FILE = os.path.join(CACHE_DIR, "queue.json")
 EXIFTOOL_PATH = os.path.join(r_path("exiftool", base_dir=BASE_DIR), "exiftool.exe")
 CURRENT_PID = os.getpid()
 
+QUEUE_LOCK = Lock()
 
 def handle_yt_errors(error) -> str:
     """ return a friendly string for error """
@@ -109,12 +108,16 @@ def get_q(filename) -> list:
 def set_q(filename, data: list):
     """ write data to json """
 
+    # synchronize with lock
+    QUEUE_LOCK.acquire()
     with open(filename, "wb") as q_file:
         serialized = orjson.dumps(
             data,
             option=orjson.OPT_INDENT_2
         )
         q_file.write(serialized)
+    # release write lock
+    QUEUE_LOCK.release()
 
 
 class Options():
