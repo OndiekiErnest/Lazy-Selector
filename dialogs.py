@@ -120,7 +120,7 @@ class StreamsPopup(Toplevel):
 
         self.title(title)
         self.geometry(
-            f"300x300+{self.root.winfo_x() + 2}+{self.root.winfo_y() + POP_Y}"
+            f"314x300+{self.root.winfo_x() + 2}+{self.root.winfo_y() + POP_Y}"
         )
         # prevent flashing of this window in a different pos
         self.update()
@@ -219,7 +219,7 @@ class DetailsPopup(Toplevel):
 
         self.wm_title(title)
         self.geometry(
-            f"300x300+{self.root.winfo_x() + 2}+{self.root.winfo_y() + POP_Y}"
+            f"314x300+{self.root.winfo_x() + 2}+{self.root.winfo_y() + POP_Y}"
         )
         # prevent flashing of this window in a different pos
         self.update()
