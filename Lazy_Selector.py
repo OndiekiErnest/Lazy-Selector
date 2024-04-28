@@ -494,7 +494,7 @@ class Player(Options):
         self.searchbar.selection_clear()
         search_string = self.searchbar.get()
         if len(search_string) > 1:
-            if len(self._search_history) >= 61:  # keep upto 60 searches
+            if len(self._search_history) >= 6:  # keep upto 5 searches
                 self._search_history.pop()
 
             if self.tab_num:
