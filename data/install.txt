@@ -1,4 +1,10 @@
+<<<<<<< HEAD
 
 
 * Antivirus softwares like Avast may prevent Desktop shortcut creation
+=======
+
+
+* Antivirus softwares like Avast may prevent Desktop shortcut creation
+>>>>>>> a4e48a141439482a4b6694fbb454ee0b61de7240
 * Get a strong internet connection and stream your music. Enjoy!

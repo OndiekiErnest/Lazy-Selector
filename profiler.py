@@ -10,6 +10,7 @@ def profile_function(function):
     decorator function that uses cProfile
     to print cumulative code execution times
     """
+
     def inner(*args, **kwargs):
         pr = cProfile.Profile()
         pr.enable()

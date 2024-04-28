@@ -12,6 +12,7 @@ from tkinter import (
 )
 from tkinter.filedialog import askdirectory
 from tkinter.ttk import Button as tButton, Combobox
+
 try:
     from idlelib.tooltip import ToolTip
 # for python greater than 3.7
@@ -26,9 +27,17 @@ from core import (
 )
 
 
-PRESETS = ("ultrafast", "superfast",
-           "veryfast", "faster", "fast", "medium",
-           "slow", "slower", "veryslow")
+PRESETS = (
+    "ultrafast",
+    "superfast",
+    "veryfast",
+    "faster",
+    "fast",
+    "medium",
+    "slow",
+    "slower",
+    "veryslow",
+)
 PRESET_TIP = """Presets for ffmpeg
 Slower preset takes longer to complete
 and the final file size is likely to be smaller"""
@@ -70,9 +79,9 @@ class Detail(Frame):
         key = Label(self, text=k, width=10, bg="gray95", anchor="ne", justify="right")
         key.pack(side="left", padx=2, anchor="nw")
 
-        value = Label(self, text=v, bg="white", anchor="w",
-                      justify="left", font=("", 8, txt_type)
-                      )
+        value = Label(
+            self, text=v, bg="white", anchor="w", justify="left", font=("", 8, txt_type)
+        )
         value.pack(side="left", anchor="nw")
 
         self.update()
@@ -85,22 +94,35 @@ class PathInput(Frame):
         self.root = master
         self.init_dir = init_dir
 
-        dir_choose = Button(self, text="Browse", font=("", 7), command=self.choose,
-                            height=1,
-                            bg="gray20", fg="white")
+        dir_choose = Button(
+            self,
+            text="Browse",
+            font=("", 7),
+            command=self.choose,
+            height=1,
+            bg="gray20",
+            fg="white",
+        )
         ToolTip(dir_choose, "Choose folder to download to", hover_delay=0)
         dir_choose.pack(side="left", padx=0)
 
-        self.dir_label = Label(self, text=self.init_dir, font=("", 8, "italic"),
-                               width=43, anchor="e", borderwidth=2, relief="ridge",
-                               bg="white")
+        self.dir_label = Label(
+            self,
+            text=self.init_dir,
+            font=("", 8, "italic"),
+            width=43,
+            anchor="e",
+            borderwidth=2,
+            relief="ridge",
+            bg="white",
+        )
         self.dir_label.pack(side="left", padx=0)
         self.update()
 
     def choose(self):
-        path = normpath(askdirectory(title="Choose folder to Download to",
-                                     initialdir=self.init_dir)
-                        )
+        path = normpath(
+            askdirectory(title="Choose folder to Download to", initialdir=self.init_dir)
+        )
         if path != ".":
             self.init_dir = path
             self.dir_label.configure(text=path)
@@ -109,7 +131,7 @@ class PathInput(Frame):
 
 @singleton
 class StreamsPopup(Toplevel):
-    """ show download details, get chosen """
+    """show download details, get chosen"""
 
     def __init__(self, master, title, f_type, streams, idir, **kwargs):
 
@@ -129,21 +151,36 @@ class StreamsPopup(Toplevel):
         self.select_var.trace_add(("write", "unset"), self.changebtnstate)
         # the following are not scrollable:
         # title label, ok btn, path_area, preset area
-        self.title_label = Label(self, text=f"Choose {f_type} Quality to Download",
-                                 font=("arial", 11, "bold underline"), pady=3,
-                                 bg="white")
+        self.title_label = Label(
+            self,
+            text=f"Choose {f_type} Quality to Download",
+            font=("arial", 11, "bold underline"),
+            pady=3,
+            bg="white",
+        )
         self.title_label.pack(side="top", fill="x")
         # download button
-        self.ok = Button(self, text="Download", state="disabled",
-                         bg="gray20", fg="white", command=self.destroy)
+        self.ok = Button(
+            self,
+            text="Download",
+            state="disabled",
+            bg="gray20",
+            fg="white",
+            command=self.destroy,
+        )
         self.ok.pack(side="bottom", pady=10)
         # add ffmpeg preset area
         self.dropmenu_var = StringVar()
         self.dropmenu_var.set("medium")
 
-        dropdown_menu = Combobox(self, textvariable=self.dropmenu_var,
-                                 justify="center", values=PRESETS, state="readonly",
-                                 background="white")
+        dropdown_menu = Combobox(
+            self,
+            textvariable=self.dropmenu_var,
+            justify="center",
+            values=PRESETS,
+            state="readonly",
+            background="white",
+        )
         ToolTip(dropdown_menu, PRESET_TIP, hover_delay=0)
         dropdown_menu.pack(side="bottom", fill="x")
         # download path area
@@ -153,11 +190,14 @@ class StreamsPopup(Toplevel):
         # create a canvas and a vertical scrollbar for scrolling it
         self.vscrollbar = Scrollbar(self, orient="vertical")
         self.vscrollbar.pack(side="right", fill="y")
-        self.canvas = Canvas(self, bd=0,
-                             height=350,  # starting height
-                             highlightthickness=0,
-                             yscrollcommand=self.vscrollbar.set,
-                             bg="white")
+        self.canvas = Canvas(
+            self,
+            bd=0,
+            height=350,  # starting height
+            highlightthickness=0,
+            yscrollcommand=self.vscrollbar.set,
+            bg="white",
+        )
         # bind to mouse scrolls
         self.canvas.bind("<MouseWheel>", scroll_widget)
 
@@ -169,8 +209,14 @@ class StreamsPopup(Toplevel):
         self.canvas.create_window(0, 0, window=self.interior, anchor="nw")
 
         for stream in streams:
-            radiobtn = Radiobutton(self.interior, variable=self.select_var, anchor="w",
-                                   value=stream, text=stream, bg="white")
+            radiobtn = Radiobutton(
+                self.interior,
+                variable=self.select_var,
+                anchor="w",
+                value=stream,
+                text=stream,
+                bg="white",
+            )
             radiobtn.pack(fill="x")
 
         # update scroll region
@@ -180,7 +226,7 @@ class StreamsPopup(Toplevel):
         self.canvas.yview_moveto(0)
 
     def set_scrollregion(self):
-        """ set the scroll region of the canvas"""
+        """set the scroll region of the canvas"""
         self.canvas.update()
         x1, y1, x2, y2 = 0, 0, 130, (self.streams_len * 25)
         y2 += 25
@@ -196,7 +242,7 @@ class StreamsPopup(Toplevel):
             pass
 
     def on_close(self):
-        """ clear variable on window close """
+        """clear variable on window close"""
         # remove these commands as they persist across instances causing errors
         self.select_var.set(" ")
         self.destroy()
@@ -205,7 +251,7 @@ class StreamsPopup(Toplevel):
 
 @singleton
 class DetailsPopup(Toplevel):
-    """ show details from a list """
+    """show details from a list"""
 
     def __init__(self, master, title, details: dict, **kwargs):
 
@@ -227,11 +273,14 @@ class DetailsPopup(Toplevel):
         self.hscrollbar = Scrollbar(self, orient="horizontal")
         self.hscrollbar.pack(side="bottom", fill="x")
 
-        self.canvas = Canvas(self, bd=0,
-                             highlightthickness=0,
-                             yscrollcommand=self.vscrollbar.set,
-                             xscrollcommand=self.hscrollbar.set,
-                             bg="white")
+        self.canvas = Canvas(
+            self,
+            bd=0,
+            highlightthickness=0,
+            yscrollcommand=self.vscrollbar.set,
+            xscrollcommand=self.hscrollbar.set,
+            bg="white",
+        )
         # bind to mouse scrolls
         self.canvas.bind("<MouseWheel>", scroll_widget)
 
@@ -244,8 +293,9 @@ class DetailsPopup(Toplevel):
         self.canvas.create_window(0, 0, window=self.interior, anchor="nw")
 
         # thumbnail label
-        self.thumbnail_label = Label(self.interior, anchor="nw",
-                                     justify="left", bg="white")
+        self.thumbnail_label = Label(
+            self.interior, anchor="nw", justify="left", bg="white"
+        )
         self.thumbnail_label.pack(side="top", anchor="nw", pady=3, padx=85)
 
         # thumbnail
@@ -269,7 +319,7 @@ class DetailsPopup(Toplevel):
         self.canvas.yview_moveto(0)
 
     def set_scrollregion(self):
-        """ set the scroll region of the canvas"""
+        """set the scroll region of the canvas"""
         self.canvas.update()
         try:
             x1, y1, x2, y2 = self.canvas.bbox("all")
@@ -279,7 +329,7 @@ class DetailsPopup(Toplevel):
         self.canvas.configure(scrollregion=(x1, y1, x2, y2))
 
     def fetch_thumbnail(self, url):
-        """ fetch thumbnail and create PhotoImage for display """
+        """fetch thumbnail and create PhotoImage for display"""
         if url:
             if isinstance(url, bytes):
                 data = url
@@ -297,7 +347,7 @@ class DetailsPopup(Toplevel):
             self.thumbnail_label.image = timage  # took hours to figure out this
 
     def on_close(self):
-        """ window close """
+        """window close"""
         self.destroy()
         del self
 
@@ -311,7 +361,9 @@ class _Base(Toplevel):
 
         self.details_expanded = False
         self.title(title)  # win title
-        self.geometry(f"314x116+{self.master.winfo_x() + 2}+{self.master.winfo_y() + 35}")
+        self.geometry(
+            f"314x116+{self.master.winfo_x() + 2}+{self.master.winfo_y() + 35}"
+        )
         # prevent flashing of this window in a different pos
         self.update()
         self.configure(bg="white")
@@ -348,15 +400,11 @@ class Quiz(_Base):
         super().__init__(master, title, **kwargs)
 
     def create_widgets(self):
-        Label(
-            self, image="::tk::icons::question",
-            font=("", 9), bg="white").grid(
-                row=0, column=0, pady=7,
-                padx=5, sticky="w"
+        Label(self, image="::tk::icons::question", font=("", 9), bg="white").grid(
+            row=0, column=0, pady=7, padx=5, sticky="w"
         )
-        Label(
-            self, text=f"{self.quiz}", bg="white").grid(
-                row=0, column=1, columnspan=2, pady=7, sticky="w"
+        Label(self, text=f"{self.quiz}", bg="white").grid(
+            row=0, column=1, columnspan=2, pady=7, sticky="w"
         )
         self.okay_btn = tButton(self, text="OK", command=self.okay)
         self.okay_btn.grid(row=1, column=1, sticky="e")
@@ -376,10 +424,8 @@ class Info(_Base):
         super().__init__(master, title, **kwargs)
 
     def create_widgets(self):
-        Label(
-            self, image="::tk::icons::information",
-            font=("", 9), bg="white").grid(
-                row=0, column=0, pady=7, padx=5, sticky="w"
+        Label(self, image="::tk::icons::information", font=("", 9), bg="white").grid(
+            row=0, column=0, pady=7, padx=5, sticky="w"
         )
         Label(self, text=f"{self.msg}", bg="white").grid(
             row=0, column=1, columnspan=2, pady=7, sticky="w"
