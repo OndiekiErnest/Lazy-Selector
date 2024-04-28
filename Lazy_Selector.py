@@ -1685,7 +1685,7 @@ class Player(Options):
             self.load_songsto_playlist(p_files)
 
     def load_songsto_playlist(self, files: list):
-        """ load songs to all_files and update alt_dirs """
+        """load songs to all_files"""
 
         for song in files:
             # remove duplicate song
