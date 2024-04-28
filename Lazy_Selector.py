@@ -123,7 +123,7 @@ def set_q(filename, data: list):
 class Options():
     __slots__ = ()
     # in seconds
-    TIMEOUT = 20
+    TIMEOUT = 120
     LISTBOX_OPTIONS = {"bg": "white smoke", "fg": "black", "width": 42,
                        "selectbackground": "DeepSkyBlue3", "selectforeground": "white",
                        "height": 43, "relief": "flat",
