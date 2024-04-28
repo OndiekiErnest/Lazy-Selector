@@ -23,12 +23,12 @@ class YTSearch():
         title_link = {}
         try:
             response = VideosSearch(query_str, language=LANG, limit=RESULTS_LIMIT)
-            for i in range(3):  # get 3 pages of the results
+            for _ in range(3):  # get 3 pages of the results
                 results = response.result()
                 for item in results.get("result", {}):
                     title, link = item.get("title"), item.get("link")
                     if title and link:
-                        title_link.setdefault(title, link)
+                        title_link[title] = link
                 response.next()
             self.done = 1
             return title_link
