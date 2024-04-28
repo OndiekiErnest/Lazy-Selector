@@ -74,10 +74,10 @@ from tkinter.filedialog import (
     askopenfilenames, askdirectory
 )
 from storage import (
-    AppConfigs, DCache,
+    AppConfigs,
+    DCache,
     TrackRecords,
 )
-from ctypes import windll
 from webbrowser import open as open_tab
 
 
@@ -2319,8 +2319,6 @@ def main_run():
 if __name__ == "__main__":
     # freeze support
     freeze_support()
-    # DPI aware to avoid blurry text on high DPI screens
-    windll.shcore.SetProcessDpiAwareness(1)
 
     # run main
     main_run()
