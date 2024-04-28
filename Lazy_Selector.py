@@ -1275,7 +1275,8 @@ class Player(Options):
                 self.status_bar.pack(fill="x")
                 self.progress_loopid = self.status_bar.after(700, self.update_downloader_progress)
                 # add items to listview
-                self.listview.insert("end", *self._title_link.keys())
+                for vid_title in self._title_link.keys():
+                    self.listview.insert("end", vid_title)
 
                 self.listview_select(self.stream_index)
                 # when done searching and updating listbox
