@@ -118,7 +118,7 @@ class StreamsPopup(Toplevel):
         self.streams_len = len(streams)
 
         self.title(title)
-        self.geometry(f"300x300+{self.root.winfo_x() + 2}+{self.root.winfo_y() + 514}")
+        self.geometry(f"300x300+{self.root.winfo_x() + 2}+{self.root.winfo_y()}")
         # prevent flashing of this window in a different pos
         self.update()
         self.wm_transient(self.root)  # stay on root
@@ -215,7 +215,7 @@ class DetailsPopup(Toplevel):
         self.details_len = len(details)
 
         self.wm_title(title)
-        self.geometry(f"300x300+{self.root.winfo_x() + 2}+{self.root.winfo_y() + 514}")
+        self.geometry(f"300x300+{self.root.winfo_x() + 2}+{self.root.winfo_y()}")
         # prevent flashing of this window in a different pos
         self.update()
         self.wm_transient(self.root)  # always stay on top of root
