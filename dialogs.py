@@ -32,6 +32,7 @@ PRESETS = ("ultrafast", "superfast",
 PRESET_TIP = """Presets for ffmpeg
 Slower preset takes longer to complete
 and the final file size is likely to be smaller"""
+POP_Y = 35
 
 
 def singleton(cls):
@@ -118,7 +119,9 @@ class StreamsPopup(Toplevel):
         self.streams_len = len(streams)
 
         self.title(title)
-        self.geometry(f"300x300+{self.root.winfo_x() + 2}+{self.root.winfo_y()}")
+        self.geometry(
+            f"300x300+{self.root.winfo_x() + 2}+{self.root.winfo_y() + POP_Y}"
+        )
         # prevent flashing of this window in a different pos
         self.update()
         self.wm_transient(self.root)  # stay on root
@@ -215,7 +218,9 @@ class DetailsPopup(Toplevel):
         self.details_len = len(details)
 
         self.wm_title(title)
-        self.geometry(f"300x300+{self.root.winfo_x() + 2}+{self.root.winfo_y()}")
+        self.geometry(
+            f"300x300+{self.root.winfo_x() + 2}+{self.root.winfo_y() + POP_Y}"
+        )
         # prevent flashing of this window in a different pos
         self.update()
         self.wm_transient(self.root)  # always stay on top of root
@@ -311,7 +316,9 @@ class _Base(Toplevel):
 
         self.details_expanded = False
         self.title(title)  # win title
-        self.geometry(f"314x116+{self.master.winfo_x() + 2}+{self.master.winfo_y() + 35}")
+        self.geometry(
+            f"314x116+{self.master.winfo_x() + 2}+{self.master.winfo_y() + POP_Y}"
+        )
         # prevent flashing of this window in a different pos
         self.update()
         self.configure(bg="white")
