@@ -113,7 +113,7 @@ def _dsorted(data: dict):
 def get_actime(filename: str):
     """ get access and created time of file """
     stat = os.stat(filename)
-    return stat.st_atime, stat.st_ctime
+    return stat.st_atime, stat.st_birthtime
 
 
 VALIDATORS = {
@@ -308,16 +308,15 @@ class TrackRecords():
         """
         get frequency of filename
         return:
-        play count
         last access time,
+        play count,
         negative created time
-        (in that order)
         """
         filename = os.path.join(self.tracks_folder, name)
         a_time, c_time = get_actime(filename)  # get a_time, c_time from file
         counter = self.records.get(name, default=0)
 
-        return (counter, a_time, -c_time)
+        return (a_time, counter, -c_time)
 
     def _freq(self, name: str) -> int:
         """ get the play count, specifically """
