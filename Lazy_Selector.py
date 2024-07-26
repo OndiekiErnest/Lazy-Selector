@@ -180,7 +180,7 @@ class Player(Options):
         self.progressbar_style.configure("TButton", foreground="gray97", focuscolor="gray97")
         self.progressbar_style.configure("TCombobox", foreground="gray97")
 
-        self.threadpool = ThreadPoolExecutor(max_workers=5)
+        self.threadpool = ThreadPoolExecutor(max_workers=20)
         # create cache
         self.file_cache = DCache(CACHE_DIR)
         self._all_files = []
@@ -693,10 +693,11 @@ class Player(Options):
         """
         selected = self.listbox.curselection()
         if selected:
-            answer = okcancel(self._root,
-                              "Lazy Selector",
-                              "Selected files will be deleted from storage\nContinue to delete?"
-                              )
+            answer = okcancel(
+                self._root,
+                "Lazy Selector",
+                "Selected files will be moved to Recycle Bin\nContinue to delete?",
+            )
             if answer:
                 for i in reversed(selected):
 
