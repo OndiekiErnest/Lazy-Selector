@@ -116,6 +116,17 @@ def get_actime(filename: str):
     return stat.st_atime, stat.st_birthtime
 
 
+def atime_sortkey(folder: str):
+    """get access time of file"""
+
+    def wrapper(name: str):
+        filename = os.path.join(folder, name)
+        stat = os.stat(filename)
+        return stat.st_atime
+
+    return wrapper
+
+
 VALIDATORS = {
     "theme": {
         "bg": _validate_theme,
