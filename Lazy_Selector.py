@@ -76,13 +76,12 @@ from tkinter.filedialog import (
 from storage import (
     AppConfigs,
     DCache,
-    TrackRecords,
+    atime_sortkey,
 )
 from webbrowser import open as open_tab
 
 
 DATA_DIR = r_path("data", base_dir=BASE_DIR)
-TRACK_RDIR = os.path.join(DATA_DIR, "trackrecords")  # track records dir
 CACHE_DIR = os.path.join(DATA_DIR, "appcache")
 QUEUE_FILE = os.path.join(CACHE_DIR, "queue.json")
 
@@ -647,11 +646,12 @@ class Player(Options):
     def _on_refresh(self):
         """ refresh playlist files function """
         self.index = -1
-        all_files = os.listdir(self._songspath)
-        self._all_files = [i for i in all_files if i.endswith(self._supported_extensions)]
-        # shuffle(self._all_files)
-        with self.track_records.records.transact():  # context manager to lock records
-            self._all_files.sort(key=self.track_records.sortbykey)
+        self._all_files = [
+            i.name
+            for i in os.scandir(self._songspath)
+            if (i.name.endswith(self._supported_extensions) and i.is_file())
+        ]
+        self._all_files.sort(key=atime_sortkey(self._songspath))
         if self.listbox is not None:
             self._update_listbox()
 
@@ -1519,8 +1519,6 @@ class Player(Options):
             t = os.path.basename(self._songspath) if os.path.basename(self._songspath) else "Disk"
             self._root.title(f"{t} - Lazy Selector")
 
-            # track records
-            self.track_records = TrackRecords(TRACK_RDIR, self._songspath)
             return True
 
         else:
@@ -1572,12 +1570,6 @@ class Player(Options):
         if len(all_files) > 0:
             self.download_location = self._songspath
             self.index = -1
-            # try closing previous nicely
-            try:
-                self.track_records.close()
-            except AttributeError:
-                pass
-            self.track_records = TrackRecords(TRACK_RDIR, self._songspath)
 
             Player._CONFIG.update_inner("folders", "last", self._songspath)  # save to config file
             self._all_files = [i for i in all_files if i.endswith(self._supported_extensions)]
@@ -1585,9 +1577,7 @@ class Player(Options):
             t = os.path.basename(self._songspath) if len(os.path.basename(self._songspath)) != 0 else "Disk"
             self._root.title(f"{t} - Lazy Selector")
 
-            # shuffle(self._all_files)
-            with self.track_records.records.transact():  # contxt manager to lock records
-                self._all_files.sort(key=self.track_records.sortbykey)
+            self._all_files.sort(key=atime_sortkey(self._songspath))
 
             if self.controls_frame is not None:
                 self._update_listbox()
@@ -1916,7 +1906,6 @@ class Player(Options):
 
         self.cancel_afters()
         self._root.destroy()
-        self.track_records.close()
         self.file_cache.close_cache()
         self.shuffle_mixer.delete()
         self.threadpool.shutdown(wait=False, cancel_futures=True)
@@ -2183,13 +2172,6 @@ class Player(Options):
                         self.stream_index += 1
                         self.stream_manager()
                 else:
-                    try:
-                        f = os.path.join(self._songspath, os.path.basename(self._song))
-                        if os.path.exists(f):
-                            # add 1 to play frequency
-                            self.track_records.log(f)
-                    except AttributeError:
-                        pass
                     self.on_eos()
                 self._root.update_idletasks()
             # playing status
