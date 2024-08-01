@@ -39,6 +39,7 @@ from multiprocessing.managers import (
 )
 from stat import S_IREAD, S_IWUSR
 from plyer import battery, notification
+import logging
 import sys
 import os
 import orjson
@@ -79,6 +80,13 @@ from storage import (
     atime_sortkey,
 )
 from webbrowser import open as open_tab
+
+logging.basicConfig(
+    filename="errors.log",
+    filemode="w",
+    level=logging.ERROR,
+    encoding="utf-8",
+)
 
 
 DATA_DIR = r_path("data", base_dir=BASE_DIR)
