@@ -98,7 +98,7 @@ def to_mp4(
     cmd_runner = cmd_runner or list_cmd
 
     if os.path.isfile(video):
-        name, ext = os.path.splitext(video)
+        _, ext = os.path.splitext(video)
         if ext != ".mp4":
             cmd = [
                 FFMPEG_PATH,
