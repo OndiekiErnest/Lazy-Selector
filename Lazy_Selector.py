@@ -87,6 +87,7 @@ logging.basicConfig(
     level=logging.ERROR,
     encoding="utf-8",
 )
+logger = logging.getLogger(__name__)
 
 
 DATA_DIR = r_path("data", base_dir=BASE_DIR)
@@ -635,8 +636,10 @@ class Player(Options):
                 DetailsPopup(self._root, title, details, bg="white")
             else:
                 self.status_bar.configure(text="Could not fetch metadata...")
-        except Exception:
-            pass
+
+        except Exception as e:
+            logger.exception(e)
+
         self.status_bar.configure(text="")
 
     def _url_details(self):
@@ -730,7 +733,8 @@ class Player(Options):
                         if filename == self._song:
                             self._play_prev(prev=0)
                         send2trash(filename)
-                    except Exception:
+                    except Exception as e:
+                        logger.exception(e)
                         safe_delete(filename)
 
                 self._resize_listbox()
@@ -929,6 +933,7 @@ class Player(Options):
                 self.status_bar.configure(text="Could not fetch audio info...")
 
         except Exception as e:
+            logger.exception(e)
             error_msg = handle_yt_errors(e)
             self.status_bar.configure(text=error_msg)
 
@@ -961,6 +966,7 @@ class Player(Options):
                 self.status_bar.configure(text="Could not fetch video info...")
 
         except Exception as e:
+            logger.exception(e)
             error_msg = handle_yt_errors(e)
             self.status_bar.configure(text=error_msg)
 
@@ -993,7 +999,8 @@ class Player(Options):
                         preset=f_preset,
                     )
                 self.status_bar.configure(text="Added to download queue...")
-            except Exception:
+            except Exception as e:
+                logger.exception(e)
                 self.status_bar.configure(text="Could not start download...")
             self.threadpool.submit(self.toggle_sleep)
 
@@ -1399,7 +1406,8 @@ class Player(Options):
                 self.play_btn_img = self.pause_img
                 self._play_btn.configure(image=self.play_btn_img)
 
-        except Exception:
+        except Exception as e:
+            logger.exception(e)
             self.status_bar.configure(text="Could not fetch audio...")
 
         if self.tab_num:
@@ -1723,7 +1731,8 @@ class Player(Options):
             self.shuffle_mixer.mute(self.mute_variable.get())
             self.shuffle_mixer.loop = self.loopone_variable.get()
             return self.shuffle_mixer
-        except Exception:  # handle these exceptions well
+        except Exception as e:  # handle these exceptions well
+            logger.exception(e)
             return self.shuffle_mixer
 
     # ------------------------------------------------------------------------------------------------------------------------------
@@ -1955,7 +1964,8 @@ class Player(Options):
                 # set read-only attr; unsupported from this version onwards
                 # chmod(DATA_DIR + "\\lazylog.cfg", S_IREAD | S_IRGRP | S_IROTH)
                 self._release_resources()
-        except Exception:
+        except Exception as e:
+            logger.exception(e)
             self._release_resources()
 
     # ------------------------------------------------------------------------------------------------------------------------------
@@ -2163,8 +2173,9 @@ class Player(Options):
             playlist_queue = get_q(QUEUE_FILE)
             if playlist_queue:
                 self._move_to_songs(playlist_queue)  # this is likely to block
-        except Exception:
-            pass
+        except Exception as e:
+            logger.exception(e)
+
         rem_battery = battery.get_state()["percentage"]
         if self._playing:
             # player ended status
