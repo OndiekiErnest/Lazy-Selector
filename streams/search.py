@@ -1,14 +1,16 @@
 """ search youtube """
 
-
-from youtubesearchpython import VideosSearch
+import logging
 import ctypes
 from locale import windows_locale
 from typing import Optional
+from youtubesearchpython import VideosSearch
 
 RESULTS_LIMIT = 30
 LANG = windows_locale[ctypes.windll.kernel32.GetUserDefaultUILanguage()]
 
+
+logger = logging.getLogger(__name__)
 
 class YTSearch():
     __slots__ = ("done", )
@@ -33,6 +35,7 @@ class YTSearch():
             self.done = 1
             return title_link
 
-        except Exception:
+        except Exception as e:
+            logger.exception(e)
             self.done = 1
             return
