@@ -4,6 +4,7 @@
 import os
 import aria2p
 import humanize
+import logging
 import subprocess
 from streams.utils import (
     r_path,
@@ -51,6 +52,8 @@ ARIA_HOST = "http://localhost"
 ARIA_PORT = 6800
 # process-task
 Task = namedtuple("Task", ["funcname", "args", "kwargs"])
+
+logger = logging.getLogger(__name__)
 
 
 def fmt_delta(delta: timedelta) -> str:
@@ -105,7 +108,8 @@ def start_aria2(parent_pid: str) -> Optional[subprocess.Popen]:
             startupinfo=NO_WIN,
         )
         return process
-    except Exception:
+    except Exception as e:
+        logger.exception(e)
         return
 
 
@@ -171,7 +175,8 @@ class PostConvertor():
                 popen_kwargs={'startupinfo': NO_WIN}
             ):
                 self.total_progress = progress
-        except Exception:
+        except Exception as e:
+            logger.exception(e)
             self.conv_error += 1
 
     def convprogress(self) -> tuple:
@@ -419,7 +424,8 @@ class ADownloader(BaseDownloader):
                     )
                     self._to_display(dsp_txt)
 
-                except Exception:
+                except Exception as e:
+                    logger.exception(e)
                     dsp_txt = f"{active_d_len} Downloading...{conv_str}{err_str}"
                     self._to_display(dsp_txt)
             else:
@@ -694,6 +700,8 @@ class ADownloader(BaseDownloader):
     def _download_error(self, api, gid: str):
         """ callback for download error event """
         name, folder, error_msg = self._on_error(gid)
+        logger.error(error_msg)
+
         if isinstance(name, tuple):
             vidname, audname = name
             # delete partial files
@@ -714,7 +722,8 @@ class ADownloader(BaseDownloader):
         self.active_downloads.clear()
         try:
             return self.aria_client.remove_all(force=True)
-        except Exception:
+        except Exception as e:
+            logger.exception(e)
             return True
 
     def shutdown_downloader(self, clear=True) -> bool:
@@ -732,8 +741,8 @@ class ADownloader(BaseDownloader):
             rtv = True
         try:
             self.aria_client.stop_listening()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.exception(e)
         # close file conversion
         self.file_convertor.close()
         try:
