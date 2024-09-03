@@ -10,6 +10,7 @@ import os
 import sys
 import ctypes
 import mutagen
+import logging
 import humanize
 import exiftool
 
@@ -23,14 +24,16 @@ RELEASE = ES_CONTINUOUS
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+logger = logging.getLogger(__name__)
+
 
 def prevent_sleep():
     """ prevent the system from sleeping """
     try:
         # Windows
         ctypes.windll.kernel32.SetThreadExecutionState(INHIBIT)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.exception(e)
 
 
 def allow_sleep():
@@ -38,8 +41,8 @@ def allow_sleep():
     try:
         # Windows
         ctypes.windll.kernel32.SetThreadExecutionState(RELEASE)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.exception(e)
 
 
 def r_path(relpath, base_dir=BASE_DIR) -> str:
@@ -105,14 +108,16 @@ def from_exiftool(file: str, ex_path: str) -> dict:
                     "resolution": data.get("ImageSize"),
                     "fps": data.get("VideoFrameRate"),
                 }
-            except Exception:
+            except Exception as e:
+                logger.exception(e)
                 cleaned = {
                     "mimetype": data.get("MIMEType"),
                     "audio": f"{channels}, {data.get('SampleRate')} Hz"
                 }
             return cleaned
 
-    except Exception:
+    except Exception as e:
+        logger.exception(e)
         return {}
 
 
@@ -139,7 +144,8 @@ def file_details(filename, exiftool_path=None):
                 }
             else:
                 meta = from_exiftool(filename, exiftool_path)
-        except Exception:
+        except Exception as e:
+            logger.exception(e)
             meta = from_exiftool(filename, exiftool_path)
 
         offline = {
@@ -154,7 +160,8 @@ def file_details(filename, exiftool_path=None):
         # if no external, get offline
         return offline
 
-    except Exception:
+    except Exception as e:
+        logger.exception(e)
         return {}
 
 
@@ -162,8 +169,8 @@ def safe_delete(filename: str):
     """ skip exceptions that may occur when deleting """
     try:
         os.remove(filename)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.exception(e)
 
 
 def _datefromstring(date: str, fmt="%Y:%m:%d %H:%M:%S%z") -> str:
