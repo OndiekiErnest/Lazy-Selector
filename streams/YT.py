@@ -7,6 +7,9 @@ from datetime import (
 import re
 import yt_dlp
 import humanize
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 AudioStream = namedtuple(
@@ -142,7 +145,8 @@ def get_url_details(sinfo: dict, only=None):
             }
         else:
             return sinfo.get(only)
-    except TypeError:
+    except TypeError as e:
+        logger.exception(e)
 
         return {
             "thumbnail": sinfo.get("thumbnail"),
@@ -151,6 +155,8 @@ def get_url_details(sinfo: dict, only=None):
             "age": f'{sinfo.get("age_limit", 0)}+',
 
         }
+    except Exception as e:
+        logger.exception(e)
 
 
 def yt_audstream(item: dict, title, thumbnail_url, duration):
@@ -201,7 +207,8 @@ def get_audio_streams(sinfo: dict):
 
             yield yt_audstream(item, title, thumbnail, duration)
 
-    except Exception:
+    except Exception as e:
+        logger.exception(e)
         yield
 
 
@@ -232,7 +239,8 @@ def get_video_streams(sinfo: dict):
                 item,
             )
 
-    except Exception:
+    except Exception as e:
+        logger.exception(e)
         yield
 
 
@@ -250,5 +258,6 @@ def get_sanitizedinfo(url: str) -> dict:
         with yt_dlp.YoutubeDL() as yt:
             info = yt.extract_info(url, download=False)
             return yt.sanitize_info(info)
-    except Exception:
+    except Exception as e:
+        logger.exception(e)
         return {}
