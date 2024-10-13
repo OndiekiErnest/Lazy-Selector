@@ -188,6 +188,7 @@ class PostConvertor():
         self,
         media_path,
         cover,
+        abr,
         output=None,
         ffkwargs=None,
         preset=None,
@@ -201,6 +202,7 @@ class PostConvertor():
             to_mp3,
             media_path,
             cover,
+            abr,
             output=output,
             ffkwargs=ffkwargs,
             preset=preset,
@@ -231,6 +233,7 @@ class PostConvertor():
         self,
         video,
         audio,
+        abr,
         output,
         preset=None,
     ):
@@ -242,6 +245,7 @@ class PostConvertor():
             add_audio,
             video,
             audio,
+            abr,
             output,
             preset=preset,
             cmd_runner=self._ffmpeg_with_progress,
@@ -448,6 +452,7 @@ class ADownloader(BaseDownloader):
                     break
                 # additional sleep
                 sleep(0.7)
+
         self.prog_thread_running = False
         self.file_convertor.conv_error = 0
         self.errored_num = 0
@@ -498,6 +503,7 @@ class ADownloader(BaseDownloader):
                 "video": vid_d_obj.gid,
                 "audio": aud_d_obj.gid,
                 "ext": aud_ext,
+                "abr": None,
                 "final_ext": "mp4",
                 "thumbnail": None,
                 "ffmpeg_preset": kwargs.get("preset"),
@@ -507,6 +513,7 @@ class ADownloader(BaseDownloader):
                 "video": vid_d_obj.gid,
                 "audio": aud_d_obj.gid,
                 "ext": aud_ext,
+                "abr": stream.audio.info.get("abr", 124),
                 "final_ext": "mp4",
                 "thumbnail": None,
                 "ffmpeg_preset": kwargs.get("preset"),
@@ -530,6 +537,7 @@ class ADownloader(BaseDownloader):
                     "video": vid_d_obj.gid,
                     "audio": None,
                     "ext": vid_ext,
+                    "abr": None,
                     "final_ext": "mp4",
                     "thumbnail": None,
                     "ffmpeg_preset": kwargs.get("preset"),
@@ -541,6 +549,7 @@ class ADownloader(BaseDownloader):
         """ download audio """
         self.start_ariaAPI()
         aud_ext = stream.info.get("audio_ext")
+        abr = stream.info.get("abr", 124)
         filename = f"_{stream.title}_.{aud_ext}"
 
         opts = {
@@ -554,6 +563,7 @@ class ADownloader(BaseDownloader):
             "video": None,
             "audio": d_obj.gid,
             "ext": aud_ext,
+            "abr": abr,
             "final_ext": "mp3",
             "thumbnail": stream.thumbnail,
             "ffmpeg_preset": kwargs.get("preset"),
@@ -621,6 +631,7 @@ class ADownloader(BaseDownloader):
         vid_d_gid = d_dict["video"]
         aud_d_gid = d_dict["audio"]
         final_ext = d_dict["final_ext"]
+        abr = d_dict["abr"]
         ext = d_dict["ext"]
         thumbnail = d_dict["thumbnail"]
         f_preset = d_dict["ffmpeg_preset"]
@@ -639,6 +650,7 @@ class ADownloader(BaseDownloader):
 
             else:
                 name, folder = None, None
+
         elif vid_d_gid:
             vid_d_obj = self.aria_client.get_download(vid_d_gid)
             name = vid_d_obj.name
@@ -648,17 +660,18 @@ class ADownloader(BaseDownloader):
             aud_d_obj = self.aria_client.get_download(aud_d_gid)
             name = aud_d_obj.name
             folder = aud_d_obj.dir
+
         else:
             name, folder = None, None
 
-        return folder, name, ext, final_ext, thumbnail, f_preset
+        return folder, name, abr, ext, final_ext, thumbnail, f_preset
 
     def _download_complete(self, api, gid: str):
         """ callback for complete done event """
-        folder, name, ext, final_ext, thumbnail, f_p = self._on_complete(gid)
+        folder, name, abr, ext, final_ext, thumbnail, f_p = self._on_complete(gid)
         if isinstance(name, dict):
             # dash video
-            if name["done"]:  # all to finished
+            if name["done"]:  # all 2 finished
 
                 vidname, audname = (
                     folder.joinpath(name["video"]),
@@ -667,10 +680,7 @@ class ADownloader(BaseDownloader):
                 stem, _ = os.path.splitext(name["video"])
                 output = folder.joinpath(f"{stem.strip('_')}.{final_ext}")
                 self.file_convertor.enqueue_dash(
-                    str(vidname),
-                    str(audname),
-                    str(output),
-                    preset=f_p
+                    str(vidname), str(audname), abr, str(output), preset=f_p
                 )
 
         elif (name and thumbnail) and (final_ext == "mp3"):
@@ -681,6 +691,7 @@ class ADownloader(BaseDownloader):
             self.file_convertor.enqueue_audio(
                 str(downloaded_aud),
                 thumbnail,
+                abr,
                 output=str(output),
                 ffkwargs=None,  # ToDo: improve encoding speed by maybe using ext
                 preset=f_p,

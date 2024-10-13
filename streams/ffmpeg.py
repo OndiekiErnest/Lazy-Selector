@@ -21,8 +21,9 @@ def list_cmd(cmd):
 
 
 def to_mp3(
-    media_path,
-    cover,
+    media_path: str,
+    cover: str,
+    abr: float,
     fmt="mp3",
     output=None,
     preset=None,
@@ -40,18 +41,30 @@ def to_mp3(
     cmd = [
         FFMPEG_PATH,
         "-y",  # overwrite output
-        "-progress", "pipe:1",  # write to stdout
+        "-progress",
+        "pipe:1",  # write to stdout
         # "-cpu-used", "0",
-        "-threads", "16",
-        "-i", media_path,
-        "-i", cover,
+        "-threads",
+        "16",
+        "-i",
+        media_path,
+        "-i",
+        cover,
         # "-v", "error",
-        "-map", "0:0",
-        "-map", "1:0",
-        "-id3v2_version", "3",
-        "-metadata:s:v", "title='Album cover'",
-        "-metadata:s:v", "comment='Cover (front)'",
-        "-preset", preset or "medium",
+        "-map",
+        "0:0",
+        "-map",
+        "1:0",
+        "-id3v2_version",
+        "3",
+        "-metadata:s:v",
+        "title='Album cover'",
+        "-metadata:s:v",
+        "comment='Cover (front)'",
+        "-preset",
+        preset or "medium",
+        "-b:a",
+        f"{round(abr)}k",
     ]
     if ffkwargs:
         cmd.extend(ffkwargs)
@@ -61,9 +74,10 @@ def to_mp3(
 
 
 def add_audio(
-    video,
-    audio,
-    output,
+    video: str,
+    audio: str,
+    abr: float,
+    output: str,
     preset=None,
     cmd_runner=None,
 ):
@@ -74,14 +88,25 @@ def add_audio(
     cmd = [
         FFMPEG_PATH,
         "-y",  # overwrite if output exists
-        "-progress", "pipe:1",  # write to stdout
-        "-i", video, "-i", audio,
+        "-progress",
+        "pipe:1",  # write to stdout
+        "-i",
+        video,
+        "-i",
+        audio,
         # "-v", "error",
-        "-map", "0:v:0",  # grab video only (track 0) from index 0 (video input)
-        "-map", "1:a:0",  # grab track 0 from index 1 (audio input)
-        "-c:v", "copy",  # copy video data, no re-encoding
-        "-c:a", "aac",  # use aac codec for audio
-        "-preset", preset or "medium",
+        "-map",
+        "0:v:0",  # grab video only (track 0) from index 0 (video input)
+        "-map",
+        "1:a:0",  # grab track 0 from index 1 (audio input)
+        "-c:v",
+        "copy",  # copy video data, no re-encoding
+        "-c:a",
+        "aac",  # use aac codec for audio
+        "-preset",
+        preset or "medium",
+        "-b:a",
+        f"{round(abr)}k",
         output,
     ]
 
@@ -89,8 +114,8 @@ def add_audio(
 
 
 def to_mp4(
-    video,
-    output,
+    video: str,
+    output: str,
     preset=None,
     cmd_runner=None,
 ):
