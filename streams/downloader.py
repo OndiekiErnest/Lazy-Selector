@@ -151,11 +151,15 @@ class PostConvertor():
     def onDoneConv(self, files):
         """ pass files to be deleted when future is done """
 
-        def delete_src(*args):  # receives a Future obj
+        def delete_src(future):  # receives a Future obj
             """ delete files """
-            for file in files:
-                if os.path.isfile(file):
-                    safe_delete(file)
+            if err := future.exception():
+                logger.error(err)
+
+            else:
+                for file in files:
+                    if os.path.isfile(file):
+                        safe_delete(file)
             # reduce active_convs number
             with self.thread_lock:
                 self.active_convs -= 1
@@ -172,9 +176,10 @@ class PostConvertor():
         try:
             self.ffprocess = FfmpegProgress(cmd)
             for progress in self.ffprocess.run_command_with_progress(
-                popen_kwargs={'startupinfo': NO_WIN}
+                popen_kwargs={"startupinfo": NO_WIN}
             ):
                 self.total_progress = progress
+
         except Exception as e:
             logger.exception(e)
             self.conv_error += 1
@@ -238,6 +243,7 @@ class PostConvertor():
         preset=None,
     ):
         """ add dash process to queue """
+
         self.start_threadpool()
 
         self.active_convs += 1
@@ -392,6 +398,7 @@ class ADownloader(BaseDownloader):
             cnv_err = f", Failed conversions: {conv_error}" if conv_error else ""
             conv_str = f"\nFFMPEG Converting... {c_p}% ({max(acv - 1, 0)} waiting)" if acv else ""
             err_str = f"\nFailed downloads: {self.errored_num}{cnv_err}" if self.errored_num else ""
+
             if self.active_downloads:
 
                 try:
@@ -503,7 +510,7 @@ class ADownloader(BaseDownloader):
                 "video": vid_d_obj.gid,
                 "audio": aud_d_obj.gid,
                 "ext": aud_ext,
-                "abr": None,
+                "abr": stream.audio.info.get("abr", 124),
                 "final_ext": "mp4",
                 "thumbnail": None,
                 "ffmpeg_preset": kwargs.get("preset"),
