@@ -13,10 +13,7 @@ from streams.YT import (
     get_url_details,
     get_play_stream,
 )
-from streams.downloader import (
-    ADownloader,
-    Task,
-)
+from streams.downloader import ADownloader, Task
 from streams.utils import (
     prevent_sleep,
     allow_sleep,
@@ -26,17 +23,11 @@ from streams.utils import (
     is_url,
     r_path,
 )
-from core import (
-    EXTS,
-    BASE_DIR,
-    scroll_widget,
-)
+from core import EXTS, BASE_DIR, scroll_widget
 from concurrent.futures import ThreadPoolExecutor
 from socket import gethostname, gethostbyname
 from multiprocessing import Manager, freeze_support, Lock
-from multiprocessing.managers import (
-    SyncManager,
-)
+from multiprocessing.managers import SyncManager
 from stat import S_IREAD, S_IWUSR
 from plyer import battery, notification
 import logging
@@ -2173,6 +2164,10 @@ class Player(Options):
             playlist_queue = get_q(QUEUE_FILE)
             if playlist_queue:
                 self._move_to_songs(playlist_queue)  # this is likely to block
+
+        except FileNotFoundError:
+            pass
+
         except Exception as e:
             logger.exception(e)
 
