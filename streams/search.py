@@ -4,7 +4,8 @@ import logging
 import ctypes
 from locale import windows_locale
 from typing import Optional
-from youtubesearchpython import VideosSearch
+
+from yt_search import VideosSearch
 
 RESULTS_LIMIT = 30
 LANG = windows_locale[ctypes.windll.kernel32.GetUserDefaultUILanguage()]
